@@ -1,35 +1,32 @@
 import { Router } from 'express';
-import { workerQueue } from '../src/config/queues';
-
+import { indexingQueue } from '../src/server';
 const router = Router();
 
-// POST /chat - Add job to queue and return immediately
-router.post('/', async (req, res) => {
+router.post('/index', async (req, res) => {
   try {
-    const { userRequest, repoUrl } = req.body;
+    const { projectId, repoUrl, branch = 'main' } = req.body;
 
-    // Validation
-    if (!userRequest || !repoUrl) {
+    if (!projectId || !repoUrl) {
       return res.status(400).json({
-        error: 'Missing required fields: userRequest, repoUrl, projectId',
+        error: 'Missing projectId or repoUrl',
       });
     }
 
-    // Add job to queue
-    const job = await workerQueue.add('handle-worker-queue', {
-      userRequest,
+    const job = await indexingQueue.add('index-repo', {
+      projectId,
       repoUrl,
+      repoId: projectId,
+      branch,
       timestamp: Date.now(),
     });
 
     console.log(`Job queued: ${job.id}`);
 
-    // Return immediately (non-blocking)
     res.status(202).json({
       message: 'Job queued successfully',
       jobId: job.id,
       status: 'queued',
-      statusUrl: `/chat/status/${job.id}`,
+      statusUrl: `/index/status/${job.id}`,
     });
 
   } catch (error: any) {
@@ -38,11 +35,10 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /chat/status/:jobId - Check job status
 router.get('/status/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const job = await workerQueue.getJob(jobId);
+    const job = await indexingQueue.getJob(jobId);
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
@@ -53,7 +49,7 @@ router.get('/status/:jobId', async (req, res) => {
 
     res.json({
       jobId: job.id,
-      state, // 'waiting', 'active', 'completed', 'failed'
+      state,
       progress,
       data: job.data,
       result: job.returnvalue,

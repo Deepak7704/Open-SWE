@@ -59,22 +59,32 @@ export class SandboxService {
   async getFileContents(
     sandbox: Sandbox,
     filePaths: string[],
-    maxLines: number = 100
+    maxLines: number = 100,
+    repoPath: string = '/home/user/project'
   ): Promise<Map<string, string>> {
-    console.log(`\nReading contents of ${filePaths.length} files:`);
+    const limitMsg = maxLines === Infinity ? 'no line limit' : `max ${maxLines} lines`;
+    console.log(`\nReading contents of ${filePaths.length} files (${limitMsg}):`);
     const contents = new Map<string, string>();
 
     for (const path of filePaths) {
       try {
-        const fullContent = await this.readFile(sandbox, path);
-        const lines = fullContent.split('\n');
-        const truncated = lines.slice(0, maxLines).join('\n');
-        const wasTruncated = lines.length > maxLines;
+        // Convert relative path to absolute path if needed
+        const absolutePath = path.startsWith('/')
+          ? path
+          : `${repoPath}/${path}`;
 
-        contents.set(path, truncated);
-        console.log(`  ${path} (${lines.length} lines${wasTruncated ? `, truncated to ${maxLines}` : ''})`);
+        const fullContent = await this.readFile(sandbox, absolutePath);
+        const lines = fullContent.split('\n');
+        const truncated = maxLines === Infinity ? fullContent : lines.slice(0, maxLines).join('\n');
+        const wasTruncated = lines.length > maxLines && maxLines !== Infinity;
+
+        contents.set(absolutePath, truncated);
+        const statusMsg = wasTruncated
+          ? ` (truncated from ${lines.length} to ${maxLines} lines)`
+          : ` (${lines.length} lines, ${fullContent.length} chars)`;
+        console.log(`  ✓ ${path}${statusMsg}`);
       } catch (error) {
-        console.error(`  Error reading ${path}:`, error);
+        console.error(`  ✗ Error reading ${path}:`, (error as Error).message);
       }
     }
 

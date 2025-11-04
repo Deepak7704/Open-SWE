@@ -13,10 +13,12 @@
 
 import { Sandbox } from '@e2b/code-interpreter';
 import { generateObject, generateText } from 'ai';
+import Redis from 'ioredis';
 import gemini from '../lib/ai_config';
 import { GenerationSchema, type GenerateOutput } from '../types';
 import { createFileSearchGraph } from '../workflows/file_search';
 import { extractKeywords } from '../utils/helpers';
+import { HybridSearchService } from './hybrid-search.service';
 
 export class AIService {
   /**
@@ -42,6 +44,41 @@ export class AIService {
 
     const relevantFiles = searchResult.foundfiles;
     console.log(`Found ${relevantFiles.length} relevant files via LangGraph`);
+
+    return relevantFiles;
+  }
+
+  /**
+   * Find relevant files using Hybrid Search (BM25 + Vector)
+   * More accurate than LangGraph for pre-indexed repositories
+   */
+  async findRelevantFilesHybrid(
+    redis: Redis,
+    repoId: string,
+    userPrompt: string,
+    topK: number = 20
+  ): Promise<string[]> {
+    console.log('Finding relevant files using Hybrid Search (BM25 + Vector)');
+
+    // Initialize hybrid search service
+    const hybridSearch = new HybridSearchService(redis, repoId);
+    await hybridSearch.initialize();
+
+    // Search using both BM25 and Vector similarity
+    const results = await hybridSearch.search(userPrompt, topK, 'rrf');
+
+    // Get unique file paths
+    const relevantFiles = hybridSearch.getUniqueFiles(results);
+
+    console.log(`Found ${relevantFiles.length} relevant files via Hybrid Search`);
+
+    // Also show grouped results for transparency
+    const grouped = hybridSearch.groupByFile(results);
+    console.log('\nRelevant chunks per file:');
+    grouped.forEach((chunks, filePath) => {
+      console.log(`  ${filePath}: ${chunks.length} chunk(s)`);
+    });
+    console.log('');
 
     return relevantFiles;
   }
@@ -95,18 +132,24 @@ export class AIService {
   async selectFilesToModify(
     sandbox: Sandbox,
     userPrompt: string,
-    candidateFiles: string[]
+    candidateFiles: string[],
+    repoPath: string = '/home/user/project'
   ): Promise<string[]> {
     console.log(`\nUsing LLM to analyze ${candidateFiles.length} candidate files...`);
 
     const fileContents = new Map<string, string>();
     for (const filePath of candidateFiles) {
       try {
-        const content = await sandbox.files.read(filePath);
-        fileContents.set(filePath, content);
-        console.log(`  Read ${filePath} (${content.length} chars)`);
+        // Convert relative path to absolute path
+        const absolutePath = filePath.startsWith('/')
+          ? filePath
+          : `${repoPath}/${filePath}`;
+
+        const content = await sandbox.files.read(absolutePath);
+        fileContents.set(absolutePath, content);
+        console.log(`   Read ${filePath} (${content.length} chars)`);
       } catch (error) {
-        console.error(`  Failed to read ${filePath}`);
+        console.error(`   Failed to read ${filePath}:`, (error as Error).message);
       }
     }
 

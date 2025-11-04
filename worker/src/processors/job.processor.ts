@@ -4,9 +4,11 @@
  * Orchestrates the entire code change workflow by coordinating all services.
  * Main entry point for processing background jobs.
  *
- * Extracted from worker.ts lines 25-165
- */
+ * Uses Hybrid Search (BM25 + Vector) to find relevant files.
+ **/
 
+import Redis from 'ioredis';
+import { Queue } from 'bullmq';
 import { GitHubService } from '../services/github.service';
 import { GitService } from '../services/git.service';
 import { SandboxService } from '../services/sandbox.service';
@@ -14,16 +16,20 @@ import { AIService } from '../services/ai.service';
 import { generateBranchName, extractKeywords } from '../utils/helpers';
 
 export class JobProcessor {
+  private redis: Redis;
   private githubService: GitHubService;
   private gitService: GitService;
   private sandboxService: SandboxService;
   private aiService: AIService;
+  private indexingQueue: Queue;
 
-  constructor(githubToken: string) {
+  constructor(githubToken: string, redis: Redis) {
+    this.redis = redis;
     this.githubService = new GitHubService(githubToken);
     this.gitService = new GitService();
     this.sandboxService = new SandboxService();
     this.aiService = new AIService();
+    this.indexingQueue = new Queue('indexing', { connection: redis });
   }
 
   /**
@@ -31,12 +37,19 @@ export class JobProcessor {
    * Main workflow orchestration
    */
   async process(job: any): Promise<{ success: boolean; prUrl: string; prNumber: number }> {
-    const { repoUrl, task } = job.data;
+    const { repoUrl, task, repoId, indexingJobId } = job.data;
     const projectId = `job-${job.id}`;
 
     console.log(`Processing job ${job.id}: ${task}`);
+    console.log(`Repository ID: ${repoId}`);
 
     try {
+      // If indexingJobId is provided, wait for indexing to complete first
+      if (indexingJobId) {
+        console.log(`Waiting for indexing job ${indexingJobId} to complete...`);
+        await this.waitForIndexing(indexingJobId);
+        console.log(`Indexing complete! Proceeding with code generation...`);
+      }
       // Step 1: Ensure fork exists
       await job.updateProgress(10);
       console.log('Step 1: Ensuring fork exists...');
@@ -52,20 +65,29 @@ export class JobProcessor {
       console.log('Step 3: Cloning repository...');
       const repoPath = await this.gitService.cloneRepository(sandbox, forkUrl);
 
-      // Step 4: Find relevant files using LangGraph
+      // Step 4: Find relevant files using Hybrid Search (BM25 + Vector)
       await job.updateProgress(40);
-      console.log('Step 4: Finding relevant files...');
-      const relevantFiles = await this.aiService.findRelevantFiles(sandbox, repoPath, task);
+      console.log('Step 4: Finding relevant files using Hybrid Search...');
+      const relevantFiles = await this.aiService.findRelevantFilesHybrid(
+        this.redis,
+        repoId,
+        task,
+        20  // top 20 relevant files
+      );
+
+      if (relevantFiles.length === 0) {
+        throw new Error('No relevant files found. Repository may not be indexed yet.');
+      }
 
       // Step 5: Select files to modify using LLM
       console.log('Step 5: Selecting files to modify...');
       const keywords = extractKeywords(task);
-      const filesToModify = await this.aiService.selectFilesToModify(sandbox, task, relevantFiles);
+      const filesToModify = await this.aiService.selectFilesToModify(sandbox, task, relevantFiles, repoPath);
 
       // Step 6: Read file contents and get project structure
       await job.updateProgress(60);
-      console.log('Step 6: Reading file contents...');
-      const fileContents = await this.sandboxService.getFileContents(sandbox, filesToModify);
+      console.log('Step 6: Reading file contents (full files, no line limit)...');
+      const fileContents = await this.sandboxService.getFileContents(sandbox, filesToModify, Infinity, repoPath);
       const allFiles = await this.sandboxService.getFileTree(sandbox, repoPath);
 
       // Step 7: Generate code changes using AI
@@ -132,5 +154,50 @@ export class JobProcessor {
       await this.sandboxService.cleanup(projectId);
       throw error;
     }
+  }
+
+  /**
+   * Wait for indexing job to complete before proceeding
+   */
+  private async waitForIndexing(indexingJobId: string): Promise<void> {
+    const maxWaitTime = 10 * 60 * 1000; // 10 minutes max
+    const pollInterval = 5000; // Check every 5 seconds
+    const startTime = Date.now();
+
+    console.log(`Waiting for indexing job ${indexingJobId}...`);
+
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        const indexingJob = await this.indexingQueue.getJob(indexingJobId);
+
+        if (!indexingJob) {
+          throw new Error(`Indexing job ${indexingJobId} not found`);
+        }
+
+        const state = await indexingJob.getState();
+        const progress = indexingJob.progress || 0;
+
+        console.log(`Indexing status: ${state} (${progress}%)`);
+
+        if (state === 'completed') {
+          console.log(`Indexing completed successfully!`);
+          return;
+        }
+
+        if (state === 'failed') {
+          const reason = indexingJob.failedReason || 'Unknown error';
+          throw new Error(`Indexing failed: ${reason}`);
+        }
+
+        // Still running, wait and check again
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+      } catch (error) {
+        console.error(`Error checking indexing status:`, error);
+        throw error;
+      }
+    }
+
+    throw new Error(`Indexing timeout: Job ${indexingJobId} took longer than ${maxWaitTime / 1000 / 60} minutes`);
   }
 }
