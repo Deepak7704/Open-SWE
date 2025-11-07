@@ -1,15 +1,12 @@
-<div align="center">
-  <img src="frontend/public/openswe.png" alt="OpenSWE Architecture" width="100%">
+# OpenSWE
 
-  # OpenSWE
+![Open SWE](frontend/public/openswe.png)
 
-  ### AI-Powered Software Engineering Agent
+### AI-Powered Software Engineering Agent
 
-  An intelligent autonomous agent that understands your codebase, identifies relevant files, and generates code changes automatically using hybrid search (BM25 + Vector embeddings) and AST-based code analysis.
+An intelligent autonomous agent that understands your codebase, identifies relevant files, and generates code changes automatically using hybrid search (BM25 + Vector embeddings) and AST-based code analysis.
 
-  [![GitHub](https://img.shields.io/badge/GitHub-Repository-blue)](https://github.com)
-
-</div>
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue)](https://github.com)
 
 ---
 
