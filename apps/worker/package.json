@@ -1,0 +1,44 @@
+{
+  "name": "@openswe/worker",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/worker.ts",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/worker.ts",
+    "build": "tsc",
+    "start": "bun src/worker.ts",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@openswe/shared": "workspace:*",
+    "@ai-sdk/google": "^2.0.23",
+    "@ai-sdk/openai": "^2.0.52",
+    "@ast-grep/napi": "^0.39.7",
+    "@babel/parser": "^7.28.5",
+    "@babel/traverse": "^7.28.5",
+    "@daytonaio/sdk": "^0.112.1",
+    "@e2b/code-interpreter": "^2.0.1",
+    "@google/generative-ai": "^0.24.1",
+    "@langchain/core": "^1.0.2",
+    "@langchain/langgraph": "^1.0.1",
+    "@octokit/rest": "^22.0.0",
+    "@pinecone-database/pinecone": "^6.1.2",
+    "ai": "^5.0.71",
+    "bm25": "^0.1.1",
+    "dotenv": "^16.6.1",
+    "langchain": "^1.0.2",
+    "octokit": "^5.0.4",
+    "pg": "^8.16.3",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@openswe/typescript-config": "workspace:*",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^24.7.2",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

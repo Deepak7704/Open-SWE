@@ -1,0 +1,25 @@
+{
+  "name": "@openswe/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/index.ts",
+    "./queues": "./src/queues/index.ts"
+  },
+  "scripts": {
+    "type-check": "bun tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.1.12",
+    "bullmq": "^5.62.2",
+    "ioredis": "^5.8.2"
+  },
+  "devDependencies": {
+    "@openswe/typescript-config": "workspace:*",
+    "typescript": "^5.6.3"
+  }
+}
