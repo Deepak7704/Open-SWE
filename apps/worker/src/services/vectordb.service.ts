@@ -104,4 +104,25 @@ export class VectorDBService {
     await this.index.namespace(this.namespace).deleteAll();
     console.log('Namespace cleared\n');
   }
+
+  async deleteByFilePath(repoId: string, filePath: string):Promise<void> {
+    if (!this.index) {
+      throw new Error('VectorDB not initialized');
+    }
+
+    try {
+      this.setNamespace(repoId);
+
+      // Delete all vectors where metadata.filePath matches
+      await this.index.namespace(this.namespace).deleteMany({
+        filePath: filePath
+      });
+
+      console.log(`VectorDB: Deleted vectors for ${filePath}`);
+    } catch (error: any) {
+      console.error(`VectorDB: Failed to delete ${filePath}:`,
+  error.message);
+      throw error;
+    }
+  }
 }

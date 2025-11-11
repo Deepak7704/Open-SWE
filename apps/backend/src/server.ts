@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import { createQueue, QUEUE_NAMES, connection } from '@openswe/shared/queues';
 import webhookRoute from '../routes/webhook';
+import installationRoute from '../routes/installation';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -155,6 +156,10 @@ app.get('/health', (req, res) => {
 // This handles GitHub webhook events (push, pull_request, etc.)
 app.use('/webhook', webhookRoute);
 
+// Mount installation route
+// This handles GitHub App installation events
+app.use('/installation', installationRoute);
+
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
   res.status(500).json({
@@ -170,6 +175,8 @@ app.listen(PORT, () => {
   console.log(`GET /api/index-status/:jobId - Indexing job status`);
   console.log(`POST /webhook/github - GitHub webhook endpoint`);
   console.log(`GET /webhook/health - Webhook health check`);
+  console.log(`POST /installation - GitHub App installation webhook`);
+  console.log(`GET /installation/list - List all installations`);
   console.log(`GET /health - Health check\n`);
   console.log(`CORS enabled for: ${FRONTEND_URL}`);
   console.log(`Queue: Redis on ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`);

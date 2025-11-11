@@ -1,276 +1,299 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { indexingQueue, chatQueue } from '../src/server';
-
-// Get webhook secret from environment variables
-// This should match the secret you configure in GitHub webhook settings
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'hemanth';
-
+import { connection } from '@openswe/shared/queues';
+import { getInstallationForRepo } from './installation';
+import githubApp from '../lib/github_app';
+const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
+if(!WEBHOOK_SECRET){
+  throw new Error('WEBHOOK MUST BE SET');
+}
+const INCREMENTAL_THRESHOLD =
+parseInt(process.env.INCREMENTAL_THRESHOLD || '100');
 const router = Router();
 
-/**
- * Verifies that the webhook request actually came from GitHub
- *
- * How it works:
- * 1. GitHub signs the webhook payload with your secret using HMAC-SHA256
- * 2. They send this signature in the X-Hub-Signature-256 header
- * 3. We compute the same signature on our end using the raw payload
- * 4. If signatures match, we know it's genuinely from GitHub
- *
- * Security: Uses timingSafeEqual to prevent timing attacks
- *
- * @param payload - Raw request body buffer (before JSON parsing)
- * @param signature - Signature from X-Hub-Signature-256 header
- * @returns true if signature is valid, false otherwise
- */
-function verifySignature(payload: Buffer, signature: string): boolean {
-  if (!signature) {
-    console.log('No signature provided in request');
-    return false;
+  // Verify webhook signature using HMAC-SHA256
+  function verifySignature(payload: Buffer, signature: string): boolean
+  {
+    if (!signature) return false;
+
+    const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET!);
+    const digest = 'sha256=' + hmac.update(payload).digest('hex');
+
+    try {
+      return crypto.timingSafeEqual(Buffer.from(digest),
+  Buffer.from(signature));
+    } catch {
+      return false;
+    }
   }
 
-  // Create HMAC using SHA-256 and the webhook secret
-  const hmac = crypto.createHmac('sha256', WEBHOOK_SECRET);
+  // Extract and deduplicate changed files from all commits using set ds
+  function extractChangedFiles(commits: any[]) {
+    const files = {
+      added: [] as string[],
+      modified: [] as string[],
+      removed: [] as string[]
+    };
 
-  // Compute the signature from the raw payload
-  const digest = 'sha256=' + hmac.update(payload).digest('hex');
+    for (const commit of commits || []) {
+      files.added.push(...(commit.added || []));
+      files.modified.push(...(commit.modified || []));
+      files.removed.push(...(commit.removed || []));
+    }
 
-  // Use timing-safe comparison to prevent timing attacks
-  // This ensures comparison takes same time regardless of where strings differ
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(digest),
-      Buffer.from(signature)
-    );
-  } catch (error) {
-    // timingSafeEqual throws if buffers have different lengths
-    console.log('Signature length mismatch');
-    return false;
+    // Remove duplicates using Set
+    files.added = [...new Set(files.added)];
+    files.modified = [...new Set(files.modified)];
+    files.removed = [...new Set(files.removed)];
+
+    return files;
   }
-}
 
-/**
- * GitHub Webhook Endpoint
- *
- * This endpoint listens to events from GitHub (push, pull_request, etc.)
- * and triggers appropriate actions in your system.
- *
- * Route: POST /webhook/github
- */
-router.post('/github', async (req, res) => {
-  try {
-    // Extract GitHub webhook headers
-    const signature = req.header('X-Hub-Signature-256') || '';
-    const event = req.header('X-GitHub-Event') || '';
-    const deliveryId = req.header('X-GitHub-Delivery') || '';
+  // Check if repository branch has existing index in Redis
+  async function isRepositoryIndexed(repoName: string, branch: string):
+  Promise<boolean> {
+    const key = `index:${repoName}:${branch}:meta`;
+    return (await connection.exists(key)) === 1;
+  }
 
-    const body = req.body;
-    const rawBody = (req as any).rawBody as Buffer;
+  // Decide whether to use full or incremental indexing
+  function determineIndexStrategy(
+    isIndexed: boolean,
+    beforeSHA: string,
+    totalChanges: number
+  ): { type: 'full' | 'incremental'; reason: string } {
 
-    console.log(`\n=== Webhook Received ===`);
-    console.log(`Event: ${event}`);
-    console.log(`Delivery ID: ${deliveryId}`);
-    console.log(`Timestamp: ${new Date().toISOString()}`);
-
-    // CRITICAL: Verify the webhook signature
-    // This prevents unauthorized requests from triggering your system
-    if (!verifySignature(rawBody, signature)) {
-      console.error(' Invalid signature - rejecting webhook');
-      return res.status(403).json({
-        error: 'Invalid signature',
-        message: 'Webhook signature verification failed'
-      });
+    // First time indexing
+    if (!isIndexed) {
+      return { type: 'full', reason: 'Not indexed' };
     }
 
-    console.log('Signature verified');
-
-    // Extract repository information from webhook payload
-    const repoName = body?.repository?.full_name; // e.g., "owner/repo"
-    const repoUrl = body?.repository?.clone_url;  // e.g., "https://github.com/owner/repo.git"
-    const repoHtmlUrl = body?.repository?.html_url; // e.g., "https://github.com/owner/repo"
-
-    if (!repoName || !repoUrl) {
-      console.error(' Missing repository information in webhook payload');
-      return res.status(400).json({
-        error: 'Missing repository information'
-      });
+    // Force push detected (beforeSHA is all zeros)
+    if (beforeSHA === '0000000000000000000000000000000000000000') {
+      return { type: 'full', reason: 'Force push' };
     }
 
-    console.log(`Repository: ${repoName}`);
+    // No files changed
+    if (totalChanges === 0) {
+      return { type: 'full', reason: 'No changes' };
+    }
 
-    // Handle different GitHub webhook events
-    switch (event) {
-      case 'push':
-        /**
-         * PUSH EVENT
-         * Triggered when code is pushed to a branch
-         *
-         * Use case: Automatically re-index repository when code changes
-         */
+    // Too many changes - full index might be faster
+    if (totalChanges > INCREMENTAL_THRESHOLD) {
+      return { type: 'full', reason: `Changes exceed threshold
+  (${totalChanges} > ${INCREMENTAL_THRESHOLD})` };
+    }
+
+    // Use incremental for small changes
+    return { type: 'incremental', reason: 'Incremental update' };
+  }
+
+  router.post('/github', async (req, res) => {
+    try {
+      const signature = req.header('X-Hub-Signature-256') || '';
+      const event = req.header('X-GitHub-Event') || '';
+      const deliveryId = req.header('X-GitHub-Delivery') || '';
+      const body = req.body;
+      const rawBody = (req as any).rawBody as Buffer; // Raw bytes for signature verification
+
+      console.log(`\n[Webhook] ${event} | Delivery: ${deliveryId}`);
+
+      // Verify request is from GitHub
+      if (!verifySignature(rawBody, signature)) {
+        console.error('[Webhook] Invalid signature');
+        return res.status(403).json({ error: 'Invalid signature' });
+      }
+
+      // Extract repository info from payload
+      const repoName = body?.repository?.full_name;
+      const repoUrl = body?.repository?.clone_url;
+      const repoHtmlUrl = body?.repository?.html_url;
+
+      if (!repoName || !repoUrl) {
+        console.error('[Webhook] Missing repository info');
+        return res.status(400).json({ error: 'Missing repository information' });
+      }
+
+      console.log(`[Webhook] Repository: ${repoName}`);
+
+      // Get installation ID for this repository
+      const installationId = getInstallationForRepo(repoName);
+
+      if (!installationId) {
+        console.error(`[Webhook] Repository ${repoName} not installed`);
+        return res.status(404).json({
+          error: 'Repository not registered',
+          message: 'Please install the GitHub App on this repository first'
+        });
+      }
+
+      // Generate installation token (valid for 1 hour)
+      let installationToken: string;
+      try {
+        installationToken = await githubApp.getInstallationToken(installationId);
+        console.log(`[Webhook] Token generated for installation ${installationId}`);
+      } catch (error: any) {
+        console.error(`[Webhook] Failed to get token:`, error.message);
+        return res.status(500).json({ error: 'Failed to generate token' });
+      }
+
+      // Handle push events
+      if (event === 'push') {
         const branch = body.ref?.replace('refs/heads/', '') || 'main';
         const commits = body.commits || [];
         const pusher = body.pusher?.name || 'unknown';
+        const beforeSHA = body.before; // Previous commit
+        const afterSHA = body.after;   // New commit
 
-        console.log(` Push to branch: ${branch}`);
-        console.log(` Pushed by: ${pusher}`);
-        console.log(` Commits: ${commits.length}`);
+        console.log(`[Push] ${branch} | ${beforeSHA?.slice(0,
+  7)}...${afterSHA?.slice(0, 7)} | ${commits.length} commits`);
 
-        // Queue an indexing job to update the code index
-        const indexJob = await indexingQueue.add(
-          'index-repo',
-          {
+        // Extract changed files from commits
+        const changedFiles = extractChangedFiles(commits);
+        const totalChanges = changedFiles.added.length +
+  changedFiles.modified.length + changedFiles.removed.length;
+
+        console.log(`[Push] +${changedFiles.added.length}
+  ~${changedFiles.modified.length} -${changedFiles.removed.length}`);
+
+        // Check if repo already indexed
+        const isIndexed = await isRepositoryIndexed(repoName, branch);
+
+        // Determine indexing strategy
+        const strategy = determineIndexStrategy(isIndexed, beforeSHA,
+  totalChanges);
+
+        console.log(`[Push] Strategy: ${strategy.type.toUpperCase()}
+  (${strategy.reason})`);
+
+        // Queue full indexing job
+        if (strategy.type === 'full') {
+          const job = await indexingQueue.add('index-repo', {
             projectId: repoName,
             repoUrl: repoHtmlUrl,
             repoId: repoName,
-            branch: branch,
+            branch,
             timestamp: Date.now(),
             trigger: 'webhook',
             event: 'push',
-            pusher: pusher,
+            indexType: 'full',
+            pusher,
             commits: commits.length,
-          },
-          {
-            // Retry configuration
+            beforeSHA,
+            afterSHA,
+            installationToken,
+            installationId,
+          }, {
             attempts: 3,
-            backoff: {
-              type: 'exponential',
-              delay: 2000, // Start with 2s delay
-            },
-          }
-        );
+            backoff: { type: 'exponential', delay: 2000 }
+          });
 
-        console.log(` Indexing job queued: ${indexJob.id}`);
-
-        return res.status(200).json({
-          message: 'Push event processed successfully',
-          event: 'push',
-          repository: repoName,
-          branch: branch,
-          jobId: indexJob.id,
-          statusUrl: `/api/index-status/${indexJob.id}`,
-        });
-
-      case 'pull_request':
-        /**
-         * PULL REQUEST EVENT
-         * Triggered when a PR is opened, closed, reopened, etc.
-         *
-         * Use case: Analyze PR changes, run code review, etc.
-         */
-        const action = body.action; // opened, closed, reopened, etc.
-        const prNumber = body.pull_request?.number;
-        const prTitle = body.pull_request?.title;
-        const prBranch = body.pull_request?.head?.ref;
-
-        console.log(` Pull Request #${prNumber}: ${action}`);
-        console.log(` Title: ${prTitle}`);
-        console.log(` Branch: ${prBranch}`);
-
-        // Only index on PR opened or synchronized (new commits pushed)
-        if (action === 'opened' || action === 'synchronize') {
-          const prIndexJob = await indexingQueue.add(
-            'index-repo',
-            {
-              projectId: `${repoName}/pr-${prNumber}`,
-              repoUrl: repoHtmlUrl,
-              repoId: repoName,
-              branch: prBranch,
-              timestamp: Date.now(),
-              trigger: 'webhook',
-              event: 'pull_request',
-              prNumber: prNumber,
-              action: action,
-            },
-            {
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 2000 },
-            }
-          );
-
-          console.log(` PR indexing job queued: ${prIndexJob.id}`);
+          console.log(`[Push] Full index job: ${job.id}`);
 
           return res.status(200).json({
-            message: 'Pull request event processed',
+            message: 'Full indexing queued',
+            indexType: 'full',
+            reason: strategy.reason,
+            jobId: job.id,
+            statusUrl: `/api/index-status/${job.id}`
+          });
+        }
+
+        // Queue incremental indexing job
+        const job = await indexingQueue.add('incremental-index', {
+          projectId: repoName,
+          repoUrl: repoHtmlUrl,
+          repoId: repoName,
+          branch,
+          timestamp: Date.now(),
+          trigger: 'webhook',
+          event: 'push',
+          indexType: 'incremental',
+          pusher,
+          commits: commits.length,
+          beforeSHA,
+          afterSHA,
+          changedFiles,         // Only changed files are indexed
+          totalChangedFiles: totalChanges,
+          installationToken,
+          installationId,
+        }, {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 2000 }
+        });
+
+        console.log(`[Push] Incremental job: ${job.id}`);
+
+        return res.status(200).json({
+          message: 'Incremental indexing queued',
+          indexType: 'incremental',
+          filesChanged: totalChanges,
+          changedFiles: {
+            added: changedFiles.added.length,
+            modified: changedFiles.modified.length,
+            removed: changedFiles.removed.length
+          },
+          jobId: job.id,
+          statusUrl: `/api/index-status/${job.id}`
+        });
+      }
+
+      // Handle pull request events
+      if (event === 'pull_request') {
+        const action = body.action;
+        const prNumber = body.pull_request?.number;
+        const prBranch = body.pull_request?.head?.ref;
+
+        console.log(`[PR] #${prNumber} ${action}`);
+
+        // Only index when PR is opened or updated
+        if (action === 'opened' || action === 'synchronize') {
+          const job = await indexingQueue.add('index-repo', {
+            projectId: `${repoName}/pr-${prNumber}`,
+            repoUrl: repoHtmlUrl,
+            repoId: repoName,
+            branch: prBranch,
+            timestamp: Date.now(),
+            trigger: 'webhook',
             event: 'pull_request',
-            action: action,
-            repository: repoName,
-            prNumber: prNumber,
-            jobId: prIndexJob.id,
-            statusUrl: `/api/index-status/${prIndexJob.id}`,
+            prNumber,
+            action,
+            indexType: 'full', // PRs always get full index
+            installationToken,
+            installationId,
+          }, {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 }
+          });
+
+          console.log(`[PR] Index job: ${job.id}`);
+
+          return res.status(200).json({
+            message: 'PR indexing queued',
+            jobId: job.id,
+            statusUrl: `/api/index-status/${job.id}`
           });
         }
 
         return res.status(200).json({
-          message: 'Pull request event received',
-          action: action,
-          note: 'No indexing triggered for this action',
+          message: 'PR event received',
+          action,
+          note: 'No indexing triggered'
         });
+      }
 
-      case 'ping':
-        /**
-         * PING EVENT
-         * Sent when you first create the webhook in GitHub
-         * Used to verify the endpoint is accessible
-         */
-        console.log(' Ping event - webhook is connected!');
-        const zen = body.zen;
-
-        return res.status(200).json({
-          message: 'Webhook is active',
-          event: 'ping',
-          zen: zen,
-        });
-
-      case 'repository':
-        /**
-         * REPOSITORY EVENT
-         * Triggered when repository is created, deleted, archived, etc.
-         */
-        const repoAction = body.action;
-        console.log(` Repository ${repoAction}: ${repoName}`);
-
-        return res.status(200).json({
-          message: 'Repository event received',
-          event: 'repository',
-          action: repoAction,
-        });
-
-      default:
-        /**
-         * UNHANDLED EVENTS
-         * Log but don't process events we don't care about
-         */
-        console.log(`Unhandled event type: ${event}`);
-
-        return res.status(200).json({
-          message: 'Event received but not processed',
-          event: event,
-          note: 'This event type is not currently handled',
-        });
-    }
-
-  } catch (error: any) {
-    console.error(' Webhook processing error:', error);
-
-    // Return 500 so GitHub knows the webhook failed
-    // GitHub will retry the webhook delivery
-    return res.status(500).json({
-      error: 'Webhook processing failed',
-      message: error.message,
-    });
-  }
-});
-
-/**
- * Webhook health check endpoint
- * Useful for monitoring and debugging
- */
-router.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'webhook',
-    timestamp: new Date().toISOString(),
+      // Unhandled event type
+      console.log(`[Webhook] Unhandled event: ${event}`);
+      return res.status(200).json({ message: 'Event not handled', event
   });
-});
 
-export default router;
+    } catch (error: any) {
+      console.error('[Webhook] Error:', error.message);
+      return res.status(500).json({ error: 'Processing failed', message:
+   error.message });
+    }
+  });
+
+
+  export default router;

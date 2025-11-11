@@ -19,15 +19,13 @@ import { CodeSkeletonService } from '../services/code_skeleton';
 
 export class JobProcessor {
   private redis: Redis;
-  private githubService: GitHubService;
   private gitService: GitService;
   private sandboxService: SandboxService;
   private aiService: AIService;
   private indexingQueue: Queue;
 
-  constructor(githubToken: string, redis: Redis) {
+  constructor(redis: Redis) {
     this.redis = redis;
-    this.githubService = new GitHubService(githubToken);
     this.gitService = new GitService();
     this.sandboxService = new SandboxService();
     this.aiService = new AIService();
@@ -39,11 +37,21 @@ export class JobProcessor {
    * Main workflow orchestration
    */
   async process(job: any): Promise<{ success: boolean; prUrl: string; prNumber: number }> {
-    const { repoUrl, task, repoId, indexingJobId } = job.data;
+    const { repoUrl, task, repoId, indexingJobId, installationToken } = job.data;
     const projectId = `job-${job.id}`;
 
     console.log(`Processing job ${job.id}: ${task}`);
     console.log(`Repository ID: ${repoId}`);
+
+    // Get GitHub token (installation token from job data or fallback to env)
+    const githubToken = installationToken || process.env.GITHUB_ACCESS_TOKEN;
+    if (!githubToken) {
+      throw new Error('No GitHub token available (neither installationToken nor GITHUB_ACCESS_TOKEN)');
+    }
+
+    // Create GitHubService with this job's token
+    const githubService = new GitHubService(githubToken);
+    console.log(`Using ${installationToken ? 'installation' : 'personal'} token for GitHub operations`);
 
     try {
       // If indexingJobId is provided, wait for indexing to complete first
@@ -55,7 +63,7 @@ export class JobProcessor {
       // Step 1: Ensure fork exists
       await job.updateProgress(10);
       console.log('Step 1: Ensuring fork exists...');
-      const { forkUrl, forkOwner } = await this.githubService.ensureFork(repoUrl);
+      const { forkUrl, forkOwner } = await githubService.ensureFork(repoUrl);
 
       // Step 2: Create or get sandbox
       await job.updateProgress(20);
@@ -165,12 +173,12 @@ export class JobProcessor {
         branchName,
         `feat: ${task}`,
         forkUrl,
-        process.env.GITHUB_ACCESS_TOKEN!
+        githubToken
       );
 
       // Step 11: Create pull request
       console.log('Step 11: Creating pull request...');
-      const pr = await this.githubService.createPullRequest(
+      const pr = await githubService.createPullRequest(
         repoUrl,
         forkOwner,
         branchName,

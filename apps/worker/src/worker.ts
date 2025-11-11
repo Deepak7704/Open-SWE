@@ -16,12 +16,8 @@ async function start() {
     console.log(' Indexing worker created');
 
     // Worker 2: Chat/Code Generation (processes worker-job queue)
-    const githubToken = process.env.GITHUB_ACCESS_TOKEN;
-    if (!githubToken) {
-      throw new Error('GITHUB_ACCESS_TOKEN not found in environment');
-    }
-
-    const jobProcessor = new JobProcessor(githubToken, connection);
+    // Note: GitHub tokens are now passed per-job via installationToken in job data
+    const jobProcessor = new JobProcessor(connection);
 
     const chatWorker = new Worker(
       'worker-job',

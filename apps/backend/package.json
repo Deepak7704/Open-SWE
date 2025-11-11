@@ -20,12 +20,15 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@openswe/shared": "workspace:*",
     "@e2b/code-interpreter": "^2.1.0",
     "@google/generative-ai": "^0.24.1",
+    "@openswe/shared": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.10",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwt": "^0.2.0"
   }
 }

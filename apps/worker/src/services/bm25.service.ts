@@ -1,8 +1,8 @@
 import type { CodeChunk } from './chunking.service';
-import { Redis } from "ioredis";
+import { Redis } from 'ioredis';
 
 interface BM25Document {
-  id: string;         // Unique identifier: "chunk-1","chunk-2"..
+  id: string;
   filePath: string;
   fileName: string;
   functionName: string | null;
@@ -10,46 +10,32 @@ interface BM25Document {
   content: string;
 }
 
-interface BM25Result {    //useful when getting results for related chunk
-  documentId: string; // chunk1,chunk2 ..
-  score: number;// BM25 score: 8.5 (higher = more relevant)
-  rank: number; // Position in results: 1, 2, 3...
-  metadata: BM25Document; //full document data
+interface BM25Result {
+  documentId: string;
+  score: number;
+  rank: number;
+  metadata: BM25Document;
 }
 
-interface BM25Index{
-  documents: Record<string,BM25Document>;
-  invertedIndex: Record<string,string[]>;//"pagination"->[c1,c2]
-  tokenFrequency : Record<string,Record<string,number>>;  // Example: chunk-1 -> { "const": 3, "blogs": 2, "useState": 1 }
-
-  documentFrequency : Record<string,number>;
-  // Example: "pagination" -> 3 (appears in 3 documents)
-  avgDocLength : number;
-  metadata:{
-    timestamp:string;
-    totalDocuments:number;
-    uniqueTokens : number;
-    repoId : string;
+interface BM25Index {
+  documents: Record<string, BM25Document>;
+  invertedIndex: Record<string, string[]>;
+  tokenFrequency: Record<string, Record<string, number>>;
+  documentFrequency: Record<string, number>;
+  avgDocLength: number;
+  metadata: {
+    timestamp: string;
+    totalDocuments: number;
+    uniqueTokens: number;
+    repoId: string;
   };
-
 }
 
 export class BM25Service {
-
-  private redis : Redis;
-  private repoId : string;
-
-  // All documents indexed
-  // Key: "chunk-1", Value: { id, filePath, tokens, content, ... }
+  private redis: Redis;
+  private repoId: string;
   private documents: Map<string, BM25Document> = new Map();
-
-
-  // Inverted index: word -> set of document IDs containing it
-  // Example: "pagination" -> Set("chunk-1", "chunk-3", "chunk-5")
   private invertedIndex: Map<string, Set<string>> = new Map();
-
-  // Term frequency matrix: docId -> { token -> count }
-  // Example: "chunk-1" -> { "const": 3, "blogs": 2 }
   private tokenFrequency: Map<string, Map<string, number>> = new Map();
   private documentFrequency: Map<string, number> = new Map();
   private avgDocLength: number = 0;
@@ -108,11 +94,9 @@ export class BM25Service {
     console.log(`Unique tokens: ${this.invertedIndex.size}`);
     console.log(`Average document length: ${this.avgDocLength.toFixed(1)} tokens\n`);
 
-    // Save to Redis for persistence (no TTL - permanent storage)
     await this.saveToRedis();
   }
 
-  // Save BM25 inverted index to Redis for persistence
   private async saveToRedis(): Promise<void> {
     console.log(`Saving BM25 index to Redis...`);
 
@@ -142,11 +126,10 @@ export class BM25Service {
 
     const key = `bm25:index:${this.repoId}`;
     await this.redis.set(key, JSON.stringify(index));
-    console.log(` BM25 index saved to Redis at key: ${key}`);
-    console.log(`   Storage: ${(JSON.stringify(index).length / 1024).toFixed(2)} KB\n`);
+    console.log(`✓ BM25 index saved to Redis at key: ${key}`);
+    console.log(`  Storage: ${(JSON.stringify(index).length / 1024).toFixed(2)} KB\n`);
   }
 
-  // Load BM25 inverted index from Redis (avoids rebuilding)
   async loadFromRedis(): Promise<boolean> {
     console.log(`Loading BM25 index from Redis...`);
 
@@ -154,14 +137,13 @@ export class BM25Service {
     const data = await this.redis.get(key);
 
     if (!data) {
-      console.log(` No BM25 index found in Redis for repo: ${this.repoId}`);
-      console.log(`   Need to build index from scratch\n`);
+      console.log(`✗ No BM25 index found in Redis for repo: ${this.repoId}`);
+      console.log(`  Need to build index from scratch\n`);
       return false;
     }
 
     const index: BM25Index = JSON.parse(data);
 
-    // Restore in-memory data structures from Redis
     this.documents = new Map(Object.entries(index.documents));
     this.invertedIndex = new Map(
       Object.entries(index.invertedIndex).map(([token, docIds]) => [
@@ -183,10 +165,10 @@ export class BM25Service {
     );
     this.avgDocLength = index.avgDocLength;
 
-    console.log(` BM25 index loaded from Redis`);
-    console.log(`   Total documents: ${this.documents.size}`);
-    console.log(`   Unique tokens: ${this.invertedIndex.size}`);
-    console.log(`   Index created: ${index.metadata.timestamp}\n`);
+    console.log(`✓ BM25 index loaded from Redis`);
+    console.log(`  Total documents: ${this.documents.size}`);
+    console.log(`  Unique tokens: ${this.invertedIndex.size}`);
+    console.log(`  Index created: ${index.metadata.timestamp}\n`);
 
     return true;
   }
@@ -246,5 +228,169 @@ export class BM25Service {
       .replace(/[^a-z0-9_\s]/g, ' ')
       .split(/\s+/)
       .filter(token => token.length > 1 && !this.STOP_WORDS.has(token));
+  }
+
+  async removeFile(filePath: string): Promise<void> {
+    try {
+      const loaded = await this.loadFromRedis();
+      if (!loaded) {
+        console.log(`No index to remove from`);
+        return;
+      }
+
+      const docIdsToRemove: string[] = [];
+      for (const [docId, doc] of this.documents) {
+        if (doc.filePath === filePath) {
+          docIdsToRemove.push(docId);
+        }
+      }
+
+      if (docIdsToRemove.length === 0) {
+        console.log(`BM25: No documents found for ${filePath}`);
+        return;
+      }
+
+      for (const docId of docIdsToRemove) {
+        const doc = this.documents.get(docId)!;
+        this.documents.delete(docId);
+
+        for (const token of doc.tokens) {
+          const docSet = this.invertedIndex.get(token);
+          if (docSet) {
+            docSet.delete(docId);
+            if (docSet.size === 0) {
+              this.invertedIndex.delete(token);
+            }
+          }
+        }
+
+        this.tokenFrequency.delete(docId);
+      }
+
+      this.documentFrequency.clear();
+      for (const [token, docIds] of this.invertedIndex) {
+        this.documentFrequency.set(token, docIds.size);
+      }
+
+      if (this.documents.size > 0) {
+        const totalLength = Array.from(this.documents.values())
+          .reduce((sum, doc) => sum + doc.tokens.length, 0);
+        this.avgDocLength = totalLength / this.documents.size;
+      } else {
+        this.avgDocLength = 0;
+      }
+
+      await this.saveToRedis();
+
+      console.log(`BM25: Removed ${docIdsToRemove.length} chunks for ${filePath}`);
+    } catch (error: any) {
+      console.error(`BM25: Failed to remove ${filePath}:`, error.message);
+      throw error;
+    }
+  }
+
+  async updateFiles(chunks: CodeChunk[]): Promise<void> {
+    try {
+      const loaded = await this.loadFromRedis();
+      if (!loaded) {
+        await this.buildIndex(chunks);
+        return;
+      }
+
+      const fileChunks = new Map<string, CodeChunk[]>();
+      for (const chunk of chunks) {
+        if (!fileChunks.has(chunk.filePath)) {
+          fileChunks.set(chunk.filePath, []);
+        }
+        fileChunks.get(chunk.filePath)!.push(chunk);
+      }
+
+      for (const [filePath, chunks] of fileChunks) {
+        await this.removeFileFromMemory(filePath);
+        await this.addFileChunks(filePath, chunks);
+        console.log(`BM25: Updated ${chunks.length} chunks for ${filePath}`);
+      }
+
+      await this.saveToRedis();
+    } catch (error: any) {
+      console.error(`BM25: Failed to update files:`, error.message);
+      throw error;
+    }
+  }
+
+  private async removeFileFromMemory(filePath: string): Promise<void> {
+    const docIdsToRemove: string[] = [];
+    for (const [docId, doc] of this.documents) {
+      if (doc.filePath === filePath) {
+        docIdsToRemove.push(docId);
+      }
+    }
+
+    for (const docId of docIdsToRemove) {
+      const doc = this.documents.get(docId)!;
+      this.documents.delete(docId);
+
+      for (const token of doc.tokens) {
+        const docSet = this.invertedIndex.get(token);
+        if (docSet) {
+          docSet.delete(docId);
+          if (docSet.size === 0) {
+            this.invertedIndex.delete(token);
+          }
+        }
+      }
+
+      this.tokenFrequency.delete(docId);
+    }
+
+    this.documentFrequency.clear();
+    for (const [token, docIds] of this.invertedIndex) {
+      this.documentFrequency.set(token, docIds.size);
+    }
+
+    if (this.documents.size > 0) {
+      const totalLength = Array.from(this.documents.values())
+        .reduce((sum, doc) => sum + doc.tokens.length, 0);
+      this.avgDocLength = totalLength / this.documents.size;
+    } else {
+      this.avgDocLength = 0;
+    }
+  }
+
+  private async addFileChunks(filePath: string, chunks: CodeChunk[]): Promise<void> {
+    const documents = chunks.map(chunk => ({
+      id: chunk.id,
+      filePath: chunk.filePath,
+      fileName: chunk.fileName,
+      functionName: chunk.functionName,
+      tokens: this.tokenize(chunk.content),
+      content: chunk.content
+    }));
+
+    for (const doc of documents) {
+      this.documents.set(doc.id, doc);
+
+      for (const token of doc.tokens) {
+        if (!this.invertedIndex.has(token)) {
+          this.invertedIndex.set(token, new Set());
+        }
+        this.invertedIndex.get(token)!.add(doc.id);
+
+        if (!this.tokenFrequency.has(doc.id)) {
+          this.tokenFrequency.set(doc.id, new Map());
+        }
+        const freq = this.tokenFrequency.get(doc.id)!;
+        freq.set(token, (freq.get(token) || 0) + 1);
+      }
+    }
+
+    this.documentFrequency.clear();
+    for (const [token, docIds] of this.invertedIndex) {
+      this.documentFrequency.set(token, docIds.size);
+    }
+
+    const totalLength = Array.from(this.documents.values())
+      .reduce((sum, doc) => sum + doc.tokens.length, 0);
+    this.avgDocLength = totalLength / this.documents.size;
   }
 }

@@ -1,6 +1,7 @@
 # dependencies (bun install)
 node_modules
-
+secret.pem
+./secret.pem
 # output
 out
 dist
