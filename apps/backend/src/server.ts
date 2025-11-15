@@ -187,6 +187,7 @@ app.listen(PORT, () => {
   console.log(`GET /auth/me - Get current user`);
   console.log(`POST /auth/logout - Logout`);
   console.log(`POST /auth/refresh - Refresh JWT token`);
+  console.log(`GET /auth/repos - Get user repositories`);
   console.log(`GET /health - Health check\n`);
   console.log(`CORS enabled for: ${FRONTEND_URL}`);
   console.log(`Queue: Redis on ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`);

@@ -9,9 +9,9 @@ export default function LoginPage(){
     const [isLoading,setIsLoading] = useState(false);
     const [error,setError] = useState<string | null >(null);
 
-    //check if user is alread logged in 
+    //check if user is alread logged in
     useEffect(()=>{
-        const storedUser = localStorage.getItem("gihub_user");
+        const storedUser = localStorage.getItem("github_user");
         if(storedUser){
             //user is already logged in so redirect them to dashboard
             router.push('/dashboard');//sends the user to dashboard route
@@ -29,7 +29,7 @@ export default function LoginPage(){
         setError(null);
         //redirect to backend OAuth endpoint
         // then backend will redirect to github
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
         window.location.href = `${backendUrl}/auth/github/login`;
     }
     return (

@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useCallback, ReactNode } from 'react';
 import { User } from '@/types';
 
 interface AuthContextType {
@@ -38,15 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Login function - called after OAuth callback
-  const login = (newToken: string, newUser: User) => {
+  // Memoized to prevent unnecessary re-renders
+  const login = useCallback((newToken: string, newUser: User) => {
     localStorage.setItem('auth_token', newToken);
     localStorage.setItem('github_user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
-  };
+  }, []); // No dependencies - function logic never changes
 
   // Logout function - clears session and redirects
-  const logout = async () => {
+  // Memoized to prevent unnecessary re-renders
+  const logout = useCallback(async () => {
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
     // Call backend logout to delete Redis session
@@ -69,17 +71,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Redirect to login
     window.location.href = '/login';
-  };
+  }, [token]); // Only depends on token
 
-  return (
-    <AuthContext.Provider value={{
+  // Memoize the context value to prevent unnecessary re-renders
+  // Only creates a new object when dependencies actually change
+  const value = useMemo(() => {
+    console.log('[AuthContext] Creating new context value');
+    console.log('[AuthContext] User:', user?.username || 'null');
+    console.log('[AuthContext] Token exists:', !!token);
+    console.log('[AuthContext] isLoading:', isLoading);
+
+    return {
       user,
       token,
       isLoading,
       login,
       logout,
       isAuthenticated: !!user && !!token,
-    }}>
+    };
+  }, [user, token, isLoading, login, logout]);
+
+  return (
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

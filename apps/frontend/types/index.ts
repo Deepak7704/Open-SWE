@@ -16,10 +16,11 @@ export interface GitHubRepo {
   html_url: string;
   description: string | null;
   private: boolean;
-  fork: boolean;
+  fork?: boolean;
   language: string | null;
-  stargazers_count: number;
+  stargazers_count?: number;
   updated_at: string;
+  defaultBranch?: string;
   owner: {
     login: string;
     avatar_url: string;

@@ -194,8 +194,7 @@
 
       const result = await sandbox.commands.run(`
         find ${repoPath} -type f \\
-          \\( -name "*.ts" -o -name "*.js" -o -name "*.tsx" -o -name
-  "*.jsx" \\) \\
+          \\( -name "*.ts" -o -name "*.js" -o -name "*.tsx" -o -name "*.jsx" \\) \\
           ! -path "*/node_modules/*" \\
           ! -path "*/.git/*" \\
           ! -path "*/dist/*" \\

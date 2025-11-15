@@ -261,4 +261,59 @@ try {
 }
 });
 
+// ROUTE 6: Get user's GitHub repositories
+router.get('/repos', async (req: Request, res: Response) => {
+try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    const { verifySessionToken } = require('../lib/jwt_manager');
+    const decoded = verifySessionToken(token);
+
+    const session = await verifySession(decoded.sessionId);
+
+    // Use GitHub access token from session to fetch repos
+    const octokit = new Octokit({ auth: session.githubAccessToken });
+
+    console.log(`[Auth] Fetching repositories for user ${session.username}`);
+
+    // Fetch all repos the user has access to
+    const { data: repos } = await octokit.rest.repos.listForAuthenticatedUser({
+        sort: 'updated',
+        per_page: 100,
+        affiliation: 'owner,collaborator,organization_member'
+    });
+
+    // Format repos for frontend
+    const formattedRepos = repos.map(repo => ({
+        id: repo.id,
+        name: repo.name,
+        full_name: repo.full_name,
+        html_url: repo.html_url,
+        description: repo.description,
+        private: repo.private,
+        language: repo.language,
+        updated_at: repo.updated_at,
+        defaultBranch: repo.default_branch,
+        owner: {
+            login: repo.owner.login,
+            avatar_url: repo.owner.avatar_url
+        }
+    }));
+
+    console.log(`[Auth] Found ${formattedRepos.length} repositories for user ${session.username}`);
+
+    res.json({ repos: formattedRepos });
+
+} catch (error: any) {
+    console.error('[Auth] /repos error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch repositories' });
+}
+});
+
 export default router;
