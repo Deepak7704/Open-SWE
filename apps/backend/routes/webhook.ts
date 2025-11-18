@@ -84,7 +84,115 @@ const router = Router();
         return res.status(403).json({ error: 'Invalid signature' });
       }
 
-      // Extract repository info from payload
+      // Handle installation events FIRST (they don't have repository field)
+      if (event === 'installation' && body.action === 'created') {
+        const installationId = body.installation.id;
+        const account = body.installation.account;
+        const repositories = body.repositories || [];
+
+        console.log(`[Installation] App installed by ${account.login}`);
+
+        const installation = {
+          installationId,
+          accountLogin: account.login,
+          accountType: account.type,
+          repositories: repositories.map((repo: any) => ({
+            id: repo.id,
+            name: repo.name,
+            fullName: repo.full_name,
+            private: repo.private
+          })),
+          installedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        installations.set(installationId, installation);
+
+        repositories.forEach((repo: any) => {
+          repoToInstallation.set(repo.full_name, installationId);
+          console.log(`[Installation] ${repo.full_name} → ${installationId}`);
+        });
+
+        return res.status(200).json({
+          message: 'Installation created',
+          installationId,
+          repositories: repositories.length,
+        });
+      }
+
+      if (event === 'installation_repositories' && body.action === 'added') {
+        const installationId = body.installation.id;
+        const addedRepos = body.repositories_added || [];
+
+        console.log(`[Installation] ${addedRepos.length} repos added to installation ${installationId}`);
+
+        const installation = installations.get(installationId);
+        if (installation) {
+          addedRepos.forEach((repo: any) => {
+            installation.repositories.push({
+              id: repo.id,
+              name: repo.name,
+              fullName: repo.full_name,
+              private: repo.private,
+            });
+            repoToInstallation.set(repo.full_name, installationId);
+            console.log(`[Installation] ${repo.full_name} → ${installationId}`);
+          });
+          installation.updatedAt = new Date().toISOString();
+        }
+
+        return res.status(200).json({
+          message: 'Repositories added',
+          installationId,
+          added: addedRepos.length
+        });
+      }
+
+      if (event === 'installation_repositories' && body.action === 'removed') {
+        const installationId = body.installation.id;
+        const removedRepos = body.repositories_removed || [];
+
+        console.log(`[Installation] ${removedRepos.length} repos removed from installation ${installationId}`);
+
+        const installation = installations.get(installationId);
+        if (installation) {
+          removedRepos.forEach((repo: any) => {
+            installation.repositories = installation.repositories.filter(
+              (r: any) => r.fullName !== repo.full_name
+            );
+            repoToInstallation.delete(repo.full_name);
+          });
+          installation.updatedAt = new Date().toISOString();
+        }
+
+        return res.status(200).json({
+          message: 'Repositories removed',
+          installationId,
+          removed: removedRepos.length,
+        });
+      }
+
+      if (event === 'installation' && body.action === 'deleted') {
+        const installationId = body.installation.id;
+        const account = body.installation.account;
+
+        console.log(`[Installation] App uninstalled by ${account.login}`);
+
+        const installation = installations.get(installationId);
+        if (installation) {
+          installation.repositories.forEach((repo: any) => {
+            repoToInstallation.delete(repo.fullName);
+          });
+          installations.delete(installationId);
+        }
+
+        return res.status(200).json({
+          message: 'Installation deleted',
+          installationId
+        });
+      }
+
+      // Extract repository info from payload (for push/PR events)
       const repoName = body?.repository?.full_name;
       const repoUrl = body?.repository?.clone_url;
       const repoHtmlUrl = body?.repository?.html_url;

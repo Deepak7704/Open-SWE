@@ -22,8 +22,8 @@ const installations = new Map<number,Installation>();
 router.post('/',async(req,res)=>{
     try{
         const signature = req.header('X-Hub-Signature-256') || '';
-        const event = req.header('X-Github-Event') || '';
-        const deliveryId = req.header('X-Github-Delivery') || '';
+        const event = req.header('X-GitHub-Event') || '';
+        const deliveryId = req.header('X-GitHub-Delivery') || '';
         const body = req.body;
         const rawBody = (req as any).rawBody as Buffer;
          console.log(`\n[Installation] ${event} | Delivery: ${deliveryId}`);

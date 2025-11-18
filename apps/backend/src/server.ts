@@ -93,7 +93,7 @@ app.post('/api/chat', async (req, res) => {
         },
         {
           // Wait for indexing to complete first
-          delay: 60000 // Start checking after 1 minute
+          delay: 10000 // Start checking after 1 minute
         }
       );
 
