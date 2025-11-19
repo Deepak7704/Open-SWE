@@ -13,3 +13,32 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+
+model Installation {
+  id              Int       @id @default(autoincrement())
+  installationId  Int       @unique
+  accountLogin    String    //github user name or organization name
+  accountType     String    // 'User' or 'Organization'
+  installedAt     DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime? 
+  
+  repositories    Repository[]
+}
+
+model Repository {
+  id             Int       @id @default(autoincrement())
+  githubId       Int       @unique //github's internal database id for the repo
+  name           String     //only the repository name
+  fullName       String    @unique //username and reponame that act as key
+  private        Boolean   @default(false)
+  addedAt        DateTime  @default(now())
+  removedAt      DateTime? 
+  
+  installationId Int
+  installation   Installation @relation(fields: [installationId], references: [installationId], onDelete: Cascade)
+  
+  @@index([fullName])
+  @@index([installationId])
+}

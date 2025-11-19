@@ -23,7 +23,7 @@ connection.on('connect', () => {
 });
 
 export const QUEUE_NAMES = {
-  WORKER_JOB: 'worker-job',
+  WORKER_JOB: 'worker-job', // Type: "worker-job" (literal)
   INDEXING: 'indexing',
 } as const
 
