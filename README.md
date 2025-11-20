@@ -1,6 +1,6 @@
 # OpenSWE
 
-![Open SWE](apps/frontend/public/openswe.png)
+![Open SWE](apps/frontend/public/2.png)
 
 ### AI-Powered Software Engineering Agent
 
