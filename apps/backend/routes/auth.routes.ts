@@ -261,7 +261,9 @@ try {
 }
 });
 
-// ROUTE 6: Get user's GitHub repositories
+// ROUTE 6: Get user's GitHub repositories (from app installations)
+// Fetches ONLY repositories where the GitHub App is installed
+// This way we don't need 'repo' scope in OAuth - clean separation of concerns
 router.get('/repos', async (req: Request, res: Response) => {
 try {
     const authHeader = req.headers.authorization;
@@ -277,38 +279,54 @@ try {
 
     const session = await verifySession(decoded.sessionId);
 
-    // Use GitHub access token from session to fetch repos
-    const octokit = new Octokit({ auth: session.githubAccessToken });
+    console.log(`[Auth] Fetching installed repositories for user ${session.username}`);
 
-    console.log(`[Auth] Fetching repositories for user ${session.username}`);
+    // Import Prisma to query installation database
+    const { PrismaClient } = require('../generated/prisma/client');
+    const { PrismaPg } = require('@prisma/adapter-pg');
+    const { Pool } = require('pg');
 
-    // Fetch all repos the user has access to
-    const { data: repos } = await octokit.rest.repos.listForAuthenticatedUser({
-        sort: 'updated',
-        per_page: 100,
-        affiliation: 'owner,collaborator,organization_member'
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const adapter = new PrismaPg(pool);
+    const prisma = new PrismaClient({ adapter });
+
+    // Find all installations for this user (matched by GitHub username)
+    const installations = await prisma.installation.findMany({
+        where: {
+            accountLogin: session.username,
+            deletedAt: null  // Only active installations
+        },
+        include: {
+            repositories: {
+                where: {
+                    removedAt: null  // Only active repos
+                }
+            }
+        }
     });
 
-    // Format repos for frontend
-    const formattedRepos = repos.map(repo => ({
-        id: repo.id,
-        name: repo.name,
-        full_name: repo.full_name,
-        html_url: repo.html_url,
-        description: repo.description,
-        private: repo.private,
-        language: repo.language,
-        updated_at: repo.updated_at,
-        defaultBranch: repo.default_branch,
-        owner: {
-            login: repo.owner.login,
-            avatar_url: repo.owner.avatar_url
-        }
-    }));
+    // Flatten all repositories from all installations into a single array
+    const allRepos = installations.flatMap(installation =>
+        installation.repositories.map((repo: any) => ({
+            id: repo.githubId,
+            name: repo.name,
+            full_name: repo.fullName,
+            html_url: `https://github.com/${repo.fullName}`,
+            description: null, // Not stored in DB, could fetch from GitHub if needed
+            private: repo.private,
+            language: null, // Not stored in DB
+            updated_at: repo.addedAt.toISOString(),
+            defaultBranch: 'main', // Default assumption, could be fetched if needed
+            owner: {
+                login: repo.fullName.split('/')[0],
+                avatar_url: session.avatar
+            }
+        }))
+    );
 
-    console.log(`[Auth] Found ${formattedRepos.length} repositories for user ${session.username}`);
+    console.log(`[Auth] Found ${allRepos.length} installed repositories for user ${session.username} across ${installations.length} installation(s)`);
 
-    res.json({ repos: formattedRepos });
+    res.json({ repos: allRepos });
 
 } catch (error: any) {
     console.error('[Auth] /repos error:', error);

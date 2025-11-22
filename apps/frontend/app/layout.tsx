@@ -1,21 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Instrument_Serif, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import Providers from "./providers";
+import Toasters from "./toasters";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
   subsets: ["latin"],
+  weight: ["400"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "OpenSWE - AI-Powered Code Generation",
-  description: "Generate code with AI using your GitHub repositories",
+  title: "OpenSWE - From GitHub Issues to Pull Requests in Seconds",
+  description: "Convert GitHub issues into pull requests using AI analysis",
 };
 
 export default function RootLayout({
@@ -24,12 +29,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    <html lang="en" className={`${instrumentSerif.variable} ${spaceGrotesk.variable}`}>
+      <body className="font-sans">
         <AuthProvider>
-          {children}
+          <Providers>
+            {children}
+            <Toasters />
+          </Providers>
         </AuthProvider>
       </body>
     </html>

@@ -1,6 +1,6 @@
-# OpenSWE
+# 100xSWE
 
-![Open SWE](apps/frontend/public/2.png)
+![100xSWE](apps/frontend/public/2.png)
 
 ### AI-Powered Software Engineering Agent
 
@@ -29,7 +29,7 @@ An intelligent autonomous agent that understands your codebase, identifies relev
 
 ## Overview
 
-OpenSWE is an autonomous software engineering agent that combines advanced AI techniques to understand and modify codebases intelligently. It uses a sophisticated pipeline that includes:
+100xSWE is an autonomous software engineering agent that combines advanced AI techniques to understand and modify codebases intelligently. It uses a sophisticated pipeline that includes:
 
 - **Hybrid Search**: Combining BM25 (keyword-based) and vector embeddings (semantic) for optimal code retrieval
 - **AST Analysis**: Understanding code structure and dependencies using Abstract Syntax Trees

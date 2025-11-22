@@ -5,6 +5,6 @@
     "rootDir": ".",
     "typeRoots": ["./node_modules/@types", "./types"]
   },
-  "include": ["src/**/*", "routes/**/*","middleware/**/*","lib/**/*","types/**/*"],
+  "include": ["src/**/*", "routes/**/*","middleware/**/*","lib/**/*","types/**/*","generated/**/*"],
   "exclude": ["node_modules", "dist"]
 }
