@@ -172,10 +172,22 @@ router.post('/',async(req,res)=>{
                 removed:removedRepos.length,
             });
         }
-        console.log(`Unhandled events`);
+
+        // Push and pull_request events are not handled here
+        // They should be sent to /webhook/github endpoint
+        if (event === 'push' || event === 'pull_request') {
+            console.log(`[Installation] Received ${event} - this should go to /webhook/github`);
+            return res.status(200).json({
+                message: `${event} events should be sent to /webhook/github endpoint`,
+                event,
+                note: 'This endpoint only handles installation events'
+            });
+        }
+
+        console.log(`[Installation] Unhandled event: ${event}`);
         return res.status(200).json({message:'Event not handled',event});
     }catch(error:any){
-        console.error('Installation error',error.message);
+        console.error('[Installation] Error:',error.message);
         return res.status(500).json({
             error:'Processing Failed'
         });

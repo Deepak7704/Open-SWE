@@ -153,13 +153,43 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'primary-backend' });
 });
 
-// Mount webhook route
+// LEGACY: Mount webhook route (used internally by /github-webhook)
+// DO NOT configure GitHub App to send webhooks here directly
 // This handles GitHub webhook events (push, pull_request, etc.)
 app.use('/webhook', webhookRoute);
 
-// Mount installation route
+// LEGACY: Mount installation route (used internally by /github-webhook)
+// DO NOT configure GitHub App to send webhooks here directly
 // This handles GitHub App installation events
+// Note: GET /installation/list is still used by frontend
 app.use('/installation', installationRoute);
+
+// Unified webhook endpoint - handles ALL GitHub events
+// This endpoint receives ALL webhook events from GitHub and routes them appropriately
+app.use('/github-webhook', (req, res, next) => {
+  const event = req.header('X-GitHub-Event') || '';
+  console.log(`[Unified Webhook] Received ${event} event`);
+
+  // Route installation events to /installation handler
+  if (event === 'installation' || event === 'installation_repositories') {
+    console.log(`[Unified Webhook] Forwarding to /installation handler`);
+    return installationRoute(req, res, next);
+  }
+
+  // Route push/PR events to /webhook/github handler
+  if (event === 'push' || event === 'pull_request') {
+    console.log(`[Unified Webhook] Forwarding to /webhook handler`);
+    return webhookRoute(req, res, next);
+  }
+
+  // Unknown event - acknowledge but don't process
+  console.log(`[Unified Webhook] Unhandled event: ${event}`);
+  return res.status(200).json({
+    message: 'Event received but not handled',
+    event,
+    note: 'Only installation, push, and pull_request events are processed'
+  });
+});
 
 // Mount auth route
 // This handles OAuth authentication (login, callback, logout)
@@ -173,22 +203,27 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`POST /api/chat - Chat endpoint`);
-  console.log(`POST /api/index - Indexing endpoint`);
-  console.log(`GET /api/status/:jobId - Chat job status`);
-  console.log(`GET /api/index-status/:jobId - Indexing job status`);
-  console.log(`POST /webhook/github - GitHub webhook endpoint`);
-  console.log(`GET /webhook/health - Webhook health check`);
-  console.log(`POST /installation - GitHub App installation webhook`);
-  console.log(`GET /installation/list - List all installations`);
+  console.log(`Server running on http://localhost:${PORT}\n`);
+
+  console.log(`=== GITHUB APP WEBHOOKS (Configure in GitHub App settings) ===`);
+  console.log(`POST /github-webhook - USE THIS for GitHub App Webhook URL`);
+  console.log(`POST /webhook/github - LEGACY - Don't use directly`);
+  console.log(`POST /installation - LEGACY - Don't use directly\n`);
+
+  console.log(`=== GITHUB APP AUTH (Configure in GitHub App settings) ===`);
   console.log(`GET /auth/github/login - Initiate GitHub OAuth`);
-  console.log(`GET /auth/github/callback - GitHub OAuth callback`);
+  console.log(`GET /auth/github/callback - OAuth callback (use in GitHub App)\n`);
+
+  console.log(`=== API ENDPOINTS ===`);
+  console.log(`POST /api/chat - Chat endpoint`);
+  console.log(`GET /api/status/:jobId - Chat job status`);
+  console.log(`GET /installation/list - List all installations`);
   console.log(`GET /auth/me - Get current user`);
+  console.log(`GET /auth/repos - Get user repositories`);
   console.log(`POST /auth/logout - Logout`);
   console.log(`POST /auth/refresh - Refresh JWT token`);
-  console.log(`GET /auth/repos - Get user repositories`);
   console.log(`GET /health - Health check\n`);
+
   console.log(`CORS enabled for: ${FRONTEND_URL}`);
   console.log(`Queue: Redis on ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`);
 });

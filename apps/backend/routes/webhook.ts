@@ -84,8 +84,16 @@ const router = Router();
         return res.status(403).json({ error: 'Invalid signature' });
       }
 
-      // Installation events are handled by /installation route
+      // Installation events should be sent to /installation route
       // This webhook only handles push and PR events
+      if (event === 'installation' || event === 'installation_repositories') {
+        console.log(`[Webhook] Received ${event} event - should be sent to /installation endpoint`);
+        return res.status(200).json({
+          message: 'Installation events should be sent to /installation endpoint',
+          event,
+          note: 'Please update your GitHub App webhook URL configuration'
+        });
+      }
 
       // Extract repository info from payload (for push/PR events)
       const repoName = body?.repository?.full_name;
