@@ -37,8 +37,26 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
       console.log('[AuthModal] Login successful:', result.user.username);
 
-      // Move to installation step
-      setStep('install');
+      // Check if user already has installations
+      try {
+        const installationsResponse = await fetch(`${backendUrl}/installation/list`);
+        const installationsData = await installationsResponse.json();
+
+        if (installationsData.installations && installationsData.installations.length > 0) {
+          // User already has installations, redirect to dashboard
+          console.log('[AuthModal] User already has installations, redirecting to dashboard');
+          router.push('/dashboard');
+          onClose();
+        } else {
+          // No installations, show installation step
+          console.log('[AuthModal] No installations found, showing install step');
+          setStep('install');
+        }
+      } catch (err) {
+        console.error('[AuthModal] Error checking installations:', err);
+        // If we can't check installations, show install step to be safe
+        setStep('install');
+      }
     } catch (err: any) {
       console.error('[AuthModal] OAuth error:', err);
       setError(err.message || 'Failed to authenticate with GitHub');

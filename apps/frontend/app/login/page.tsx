@@ -9,7 +9,7 @@ export default function LoginPage(){
     const [isLoading,setIsLoading] = useState(false);
     const [error,setError] = useState<string | null >(null);
 
-    //check if user is alread logged in
+    //check if user is already logged in
     useEffect(()=>{
         const storedUser = localStorage.getItem("github_user");
         if(storedUser){
@@ -17,9 +17,9 @@ export default function LoginPage(){
             router.push('/dashboard');//sends the user to dashboard route
         }
         //check for errors from OAuth callback
-        const errrorParam  = searchParams.get('error');
-        if(errrorParam){
-            setError(decodeURIComponent(errrorParam));
+        const errorParam  = searchParams.get('error');
+        if(errorParam){
+            setError(decodeURIComponent(errorParam));
         }
     },[router,searchParams]);
 

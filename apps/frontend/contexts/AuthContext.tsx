@@ -69,8 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
 
-    // Redirect to login
-    window.location.href = '/login';
+    // Redirect to home page
+    window.location.href = '/';
   }, [token]); // Only depends on token
 
   // Memoize the context value to prevent unnecessary re-renders
