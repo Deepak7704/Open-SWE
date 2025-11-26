@@ -37,12 +37,23 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
       console.log('[AuthModal] Login successful:', result.user.username);
 
-      // Check if user already has installations
+      // Check if THIS USER already has installations
       try {
-        const installationsResponse = await fetch(`${backendUrl}/installation/list`);
+        const installationsResponse = await fetch(`${backendUrl}/auth/installations`, {
+          headers: {
+            'Authorization': `Bearer ${result.token}`,
+          },
+        });
+
+        if (!installationsResponse.ok) {
+          throw new Error('Failed to check installations');
+        }
+
         const installationsData = await installationsResponse.json();
 
-        if (installationsData.installations && installationsData.installations.length > 0) {
+        console.log('[AuthModal] User installations:', installationsData);
+
+        if (installationsData.total > 0) {
           // User already has installations, redirect to dashboard
           console.log('[AuthModal] User already has installations, redirecting to dashboard');
           router.push('/dashboard');
@@ -88,17 +99,17 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
+      <div className="bg-background border border-foreground rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-white">
+        <div className="bg-primary px-6 py-4 flex items-center justify-between border-b border-foreground">
+          <h2 className="text-xl font-bold text-primary-foreground">
             {step === 'login' && 'Connect with GitHub'}
             {step === 'install' && 'Install GitHub App'}
             {step === 'complete' && 'Setup Complete!'}
           </h2>
           <button
             onClick={onClose}
-            className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-1 transition-colors"
+            className="text-primary-foreground hover:bg-background hover:bg-opacity-20 rounded-full p-1 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -110,13 +121,13 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           {step === 'login' && (
             <div className="space-y-6">
               <div className="text-center">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Github className="w-8 h-8 text-gray-700" />
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Github className="w-8 h-8 text-foreground" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-2">
                   Sign in with GitHub
                 </h3>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Authenticate with your GitHub account to access your repositories
                 </p>
               </div>
@@ -131,7 +142,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               <Button
                 onClick={handleGitHubLogin}
                 disabled={loading}
-                className="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-3"
+                className="w-full bg-primary hover:bg-foreground text-primary-foreground font-semibold py-3"
               >
                 {loading ? (
                   <>
@@ -146,7 +157,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 )}
               </Button>
 
-              <p className="text-xs text-gray-500 text-center">
+              <p className="text-xs text-muted-foreground text-center">
                 By continuing, you agree to authorize access to your GitHub account
               </p>
             </div>
@@ -156,22 +167,22 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           {step === 'install' && (
             <div className="space-y-6">
               <div className="text-center">
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="w-8 h-8 text-green-600" />
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-8 h-8 text-foreground" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-2">
                   Authentication Successful!
                 </h3>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Now install the GitHub App to enable automatic indexing
                 </p>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 mb-2 text-sm">
+              <div className="bg-muted border border-foreground rounded-lg p-4">
+                <h4 className="font-semibold text-foreground mb-2 text-sm">
                   Why install the GitHub App?
                 </h4>
-                <ul className="text-xs text-blue-800 space-y-1.5 list-disc list-inside">
+                <ul className="text-xs text-foreground space-y-1.5 list-disc list-inside">
                   <li>Automatic repository indexing on every push</li>
                   <li>Real-time webhook notifications for code changes</li>
                   <li>Incremental indexing for faster updates</li>
@@ -189,7 +200,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
               <div className="space-y-3">
                 <Button
                   onClick={handleInstallApp}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3"
+                  className="w-full bg-primary hover:bg-foreground text-primary-foreground font-semibold py-3"
                 >
                   <ExternalLink className="w-5 h-5 mr-2" />
                   Install GitHub App
@@ -198,13 +209,13 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 <Button
                   onClick={handleSkipInstall}
                   variant="outline"
-                  className="w-full text-gray-600"
+                  className="w-full text-foreground border-foreground"
                 >
                   Skip for Now
                 </Button>
               </div>
 
-              <p className="text-xs text-gray-500 text-center">
+              <p className="text-xs text-muted-foreground text-center">
                 You'll be redirected to GitHub to select repositories, then automatically returned to your dashboard
               </p>
             </div>
@@ -213,19 +224,19 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           {/* Step 3: Complete */}
           {step === 'complete' && (
             <div className="space-y-6 text-center py-6">
-              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-12 h-12 text-green-600" />
+              <div className="w-20 h-20 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-12 h-12 text-foreground" />
               </div>
               <div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                <h3 className="text-xl font-semibold text-foreground mb-2">
                   All Set!
                 </h3>
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted-foreground">
                   Redirecting you to your dashboard...
                 </p>
               </div>
               <div className="flex justify-center">
-                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                <Loader2 className="w-6 h-6 text-foreground animate-spin" />
               </div>
             </div>
           )}

@@ -261,7 +261,70 @@ try {
 }
 });
 
-// ROUTE 6: Get user's GitHub repositories (from app installations)
+// ROUTE 6: Get user's GitHub app installations
+// Fetches ONLY installations for the authenticated user
+router.get('/installations', async (req: Request, res: Response) => {
+try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    const { verifySessionToken } = require('../lib/jwt_manager');
+    const decoded = verifySessionToken(token);
+
+    const session = await verifySession(decoded.sessionId);
+
+    console.log(`[Auth] Fetching installations for user ${session.username}`);
+
+    // Import Prisma to query installation database
+    const { PrismaClient } = require('../generated/prisma/client');
+    const { PrismaPg } = require('@prisma/adapter-pg');
+    const { Pool } = require('pg');
+
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const adapter = new PrismaPg(pool);
+    const prisma = new PrismaClient({ adapter });
+
+    // Find all installations for this user (matched by GitHub username)
+    const installations = await prisma.installation.findMany({
+        where: {
+            accountLogin: session.username,
+            deletedAt: null  // Only active installations
+        },
+        include: {
+            repositories: {
+                where: {
+                    removedAt: null  // Only active repos
+                }
+            }
+        }
+    });
+
+    console.log(`[Auth] Found ${installations.length} installation(s) for user ${session.username}`);
+
+    res.json({
+        total: installations.length,
+        installations: installations.map(inst => ({
+            installationId: inst.installationId,
+            accountLogin: inst.accountLogin,
+            accountType: inst.accountType,
+            repositoryCount: inst.repositories.length,
+            installedAt: inst.installedAt,
+            updatedAt: inst.updatedAt
+        }))
+    });
+
+} catch (error: any) {
+    console.error('[Auth] /installations error:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch installations' });
+}
+});
+
+// ROUTE 7: Get user's GitHub repositories (from app installations)
 // Fetches ONLY repositories where the GitHub App is installed
 // This way we don't need 'repo' scope in OAuth - clean separation of concerns
 router.get('/repos', async (req: Request, res: Response) => {

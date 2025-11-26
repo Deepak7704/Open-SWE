@@ -6,10 +6,10 @@ const Footer = () => {
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-center gap-8">
           <div className="flex flex-col items-center md:items-start gap-4">
-            <p className="font-sans text-sm text-muted-foreground">© 2025 OpenSWE. All rights reserved.</p>
+            <p className="font-sans text-sm text-muted-foreground">© 2025 100xSWE. All rights reserved.</p>
             <div className="flex gap-4">
               <a
-                href="https://twitter.com/OpenSWE"
+                href="https://twitter.com/100xSWE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-10 h-10 rounded-full border border-foreground flex items-center justify-center hover:bg-foreground hover:text-background transition-colors"
@@ -20,7 +20,7 @@ const Footer = () => {
                 </svg>
               </a>
               <a
-                href="https://github.com/OpenSWE"
+                href="https://github.com/100xSWE"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-10 h-10 rounded-full border border-foreground flex items-center justify-center hover:bg-foreground hover:text-background transition-colors"

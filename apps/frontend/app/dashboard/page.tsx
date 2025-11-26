@@ -31,7 +31,7 @@ export default function Dashboard() {
   // Redirect if not authenticated
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push("/login");
+      router.push("/");
     }
   }, [user, isLoading, router]);
 
@@ -144,10 +144,10 @@ export default function Dashboard() {
 
   if (isLoading || loadingRepos) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-          <p className="text-gray-600">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-foreground mb-4"></div>
+          <p className="text-foreground">
             {isLoading ? 'Loading...' : 'Fetching repositories...'}
           </p>
         </div>
@@ -160,24 +160,24 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      <header className="bg-background border-b border-foreground px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">
-              open-swe <span className="text-gray-400">@</span> <span className="text-blue-600">github</span>
+            <h1 className="text-2xl font-bold text-foreground">
+              100xSWE <span className="text-muted-foreground">@</span> <span className="font-semibold">github</span>
             </h1>
             {selectedRepo && (
               <div className="flex items-center gap-2 text-sm">
-                <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="w-4 h-4 text-muted-foreground" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                <span className="text-gray-600">{selectedRepo.full_name}</span>
-                <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                <span className="text-foreground">{selectedRepo.full_name}</span>
+                <span className="px-2 py-0.5 bg-muted text-foreground rounded text-xs">
                   {selectedRepo.defaultBranch || 'master'}
                 </span>
-                <span className="text-gray-400">$</span>
+                <span className="text-muted-foreground">$</span>
               </div>
             )}
           </div>
@@ -185,17 +185,17 @@ export default function Dashboard() {
           {/* User Profile */}
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <p className="text-sm font-medium text-gray-900">{user.name || user.username}</p>
-              <p className="text-xs text-gray-500">{user.email}</p>
+              <p className="text-sm font-medium text-foreground">{user.name || user.username}</p>
+              <p className="text-xs text-muted-foreground">{user.email}</p>
             </div>
             <img
               src={user.avatar}
               alt={user.username}
-              className="w-10 h-10 rounded-full border-2 border-gray-200"
+              className="w-10 h-10 rounded-full border-2 border-foreground"
             />
             <button
               onClick={logout}
-              className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="px-4 py-2 text-sm bg-primary text-primary-foreground hover:bg-foreground border border-foreground rounded-lg transition-colors"
             >
               Logout
             </button>
@@ -205,13 +205,13 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-6 py-12">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-6">
+        <div className="bg-background rounded-xl shadow-sm border border-foreground p-8 space-y-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Repository Selector */}
             <div className="relative">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                 </div>
@@ -224,35 +224,35 @@ export default function Dashboard() {
                   }}
                   onFocus={() => setShowDropdown(true)}
                   placeholder="Search repositories..."
-                  className="text-black w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  className="text-foreground w-full pl-10 pr-4 py-3 border border-foreground rounded-lg focus:ring-2 focus:ring-foreground focus:border-transparent outline-none bg-background"
                 />
               </div>
 
               {/* Dropdown */}
               {showDropdown && filteredRepos.length > 0 && (
-                <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                <div className="absolute z-10 w-full mt-2 bg-background border border-foreground rounded-lg shadow-lg max-h-80 overflow-y-auto">
                   {filteredRepos.map((repo) => (
                     <button
                       key={repo.id}
                       type="button"
                       onClick={() => handleRepoSelect(repo)}
-                      className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 transition-colors"
+                      className="w-full px-4 py-3 text-left hover:bg-muted border-b border-border last:border-b-0 transition-colors"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 truncate">{repo.full_name}</p>
+                          <p className="font-medium text-foreground truncate">{repo.full_name}</p>
                           {repo.description && (
-                            <p className="text-sm text-gray-500 truncate mt-0.5">{repo.description}</p>
+                            <p className="text-sm text-muted-foreground truncate mt-0.5">{repo.description}</p>
                           )}
                         </div>
                         <div className="flex items-center gap-2 ml-4">
                           {repo.language && (
-                            <span className="px-2 py-0.5 text-xs bg-blue-50 text-blue-700 rounded">
+                            <span className="px-2 py-0.5 text-xs bg-muted text-foreground border border-foreground rounded">
                               {repo.language}
                             </span>
                           )}
                           {repo.private && (
-                            <span className="px-2 py-0.5 text-xs bg-yellow-50 text-yellow-700 rounded">
+                            <span className="px-2 py-0.5 text-xs bg-foreground text-background rounded">
                               Private
                             </span>
                           )}
@@ -264,8 +264,36 @@ export default function Dashboard() {
               )}
 
               {showDropdown && filteredRepos.length === 0 && searchQuery && (
-                <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg p-4">
-                  <p className="text-gray-500 text-center text-sm">No repositories found</p>
+                <div className="absolute z-10 w-full mt-2 bg-background border border-foreground rounded-lg shadow-lg p-4">
+                  <p className="text-muted-foreground text-center text-sm">No repositories match your search</p>
+                </div>
+              )}
+
+              {/* Show message if no repos at all */}
+              {!loadingRepos && repos.length === 0 && !searchQuery && (
+                <div className="mt-4 bg-muted border border-foreground rounded-lg p-6">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-6 h-6 text-foreground flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-foreground mb-2">No Repositories Found</h3>
+                      <p className="text-sm text-muted-foreground mb-3">
+                        To use 100xSWE, you need to install the GitHub App on your repositories.
+                      </p>
+                      <button
+                        onClick={() => {
+                          window.location.href = 'https://github.com/apps/100xSWE/installations/new';
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground hover:bg-foreground border border-foreground font-medium rounded-lg transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                        Install GitHub App
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -286,10 +314,10 @@ export default function Dashboard() {
                 onKeyDown={handleKeyDown}
                 placeholder="Describe your task..."
                 rows={8}
-                className="text-black w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none outline-none"
+                className="text-foreground w-full px-4 py-3 border border-foreground rounded-lg focus:ring-2 focus:ring-foreground focus:border-transparent resize-none outline-none bg-background"
               />
-              <p className="mt-2 text-sm text-gray-500">
-                Press <kbd className="px-2 py-0.5 bg-gray-100 border border-gray-300 rounded text-xs">Cmd+Enter</kbd> to submit
+              <p className="mt-2 text-sm text-muted-foreground">
+                Press <kbd className="px-2 py-0.5 bg-muted border border-foreground rounded text-xs">Cmd+Enter</kbd> to submit
               </p>
             </div>
 
@@ -297,7 +325,7 @@ export default function Dashboard() {
             <button
               type="submit"
               disabled={!selectedRepo || !task.trim() || isSubmitting}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="w-full bg-primary text-primary-foreground hover:bg-foreground border border-foreground font-semibold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSubmitting ? (
                 <span className="flex items-center justify-center gap-2">
@@ -316,20 +344,20 @@ export default function Dashboard() {
 
         {/* Job Status Display */}
         {jobStatus && (
-          <div className="mt-6 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="mt-6 p-6 bg-muted border border-foreground rounded-lg">
             <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="w-6 h-6 text-foreground flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
               <div className="flex-1">
-                <h3 className="font-semibold text-blue-900 mb-2">Task Submitted Successfully</h3>
-                <div className="text-sm text-blue-800 space-y-1">
+                <h3 className="font-semibold text-foreground mb-2">Task Submitted Successfully</h3>
+                <div className="text-sm text-foreground space-y-1">
                   <p><strong>Job ID:</strong> {jobStatus.jobId || jobStatus.codeGenJobId}</p>
                   <p><strong>Repository:</strong> {jobStatus.repoId}</p>
                   <p><strong>Status:</strong> {jobStatus.message}</p>
                   {jobStatus.indexing && (
-                    <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded">
-                      <p className="text-orange-700 flex items-center gap-2">
+                    <div className="mt-2 p-2 bg-secondary border border-foreground rounded">
+                      <p className="text-foreground flex items-center gap-2">
                         <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -349,20 +377,20 @@ export default function Dashboard() {
 
         {/* Features Info */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
+          <div className="bg-background rounded-lg shadow-sm border border-foreground p-6 text-center">
             <div className="text-3xl mb-3">🤖</div>
-            <h3 className="font-semibold text-gray-900 mb-1">AI-Powered</h3>
-            <p className="text-sm text-gray-500">Smart code generation using Gemini AI</p>
+            <h3 className="font-semibold text-foreground mb-1">AI-Powered</h3>
+            <p className="text-sm text-muted-foreground">Smart code generation using Gemini AI</p>
           </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
+          <div className="bg-background rounded-lg shadow-sm border border-foreground p-6 text-center">
             <div className="text-3xl mb-3">⚡</div>
-            <h3 className="font-semibold text-gray-900 mb-1">Fast Indexing</h3>
-            <p className="text-sm text-gray-500">Automatic repository indexing on push</p>
+            <h3 className="font-semibold text-foreground mb-1">Fast Indexing</h3>
+            <p className="text-sm text-muted-foreground">Automatic repository indexing on push</p>
           </div>
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
+          <div className="bg-background rounded-lg shadow-sm border border-foreground p-6 text-center">
             <div className="text-3xl mb-3">🔍</div>
-            <h3 className="font-semibold text-gray-900 mb-1">Smart Search</h3>
-            <p className="text-sm text-gray-500">BM25-powered semantic code search</p>
+            <h3 className="font-semibold text-foreground mb-1">Smart Search</h3>
+            <p className="text-sm text-muted-foreground">BM25-powered semantic code search</p>
           </div>
         </div>
       </main>
