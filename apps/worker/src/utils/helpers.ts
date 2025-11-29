@@ -5,11 +5,19 @@
  */
 
 /**
- * Generate unique branch name for bot updates
- * Extracted from worker.ts line 139
+ * Generate meaningful branch name from task description
  */
-export function generateBranchName(): string {
-  return `bot/update-${Date.now()}`;
+export function generateBranchName(task: string): string {
+  const keywords = extractKeywords(task).slice(0, 4);
+  const slug = keywords.join('-');
+  const shortHash = Date.now().toString(36).slice(-6);
+
+  const maxLength = 50;
+  const truncatedSlug = slug.length > maxLength
+    ? slug.substring(0, maxLength)
+    : slug;
+
+  return `feat/${truncatedSlug}-${shortHash}`;
 }
 
 /**

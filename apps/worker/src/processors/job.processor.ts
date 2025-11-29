@@ -16,6 +16,7 @@ import { AIService } from '../services/ai.service';
 import { generateBranchName, extractKeywords } from '../utils/helpers';
 import { EnhancedCodeGraphService } from '../services/code_graph.service';
 import { CodeSkeletonService } from '../services/code_skeleton';
+import { createCodeValidationGraph } from '../workflows/code_validation';
 
 export class JobProcessor {
   private redis: Redis;
@@ -60,20 +61,15 @@ export class JobProcessor {
         await this.waitForIndexing(indexingJobId);
         console.log(`Indexing complete! Proceeding with code generation...`);
       }
-      // Step 1: Ensure fork exists
+      // Step 1: Create or get sandbox
       await job.updateProgress(10);
-      console.log('Step 1: Ensuring fork exists...');
-      const { forkUrl, forkOwner } = await githubService.ensureFork(repoUrl);
-
-      // Step 2: Create or get sandbox
-      await job.updateProgress(20);
-      console.log('Step 2: Creating sandbox...');
+      console.log('Step 1: Creating sandbox...');
       const sandbox = await this.sandboxService.getOrCreateSandbox(projectId);
 
-      // Step 3: Clone repository
-      await job.updateProgress(30);
-      console.log('Step 3: Cloning repository...');
-      const repoPath = await this.gitService.cloneRepository(sandbox, forkUrl);
+      // Step 2: Clone repository directly (no forking needed for GitHub Apps)
+      await job.updateProgress(20);
+      console.log('Step 2: Cloning repository directly...');
+      const repoPath = await this.gitService.cloneRepository(sandbox, repoUrl);
 
       // Step 3.5: Detect package manager
       console.log('Step 3.5: Detecting package manager...');
@@ -139,64 +135,80 @@ export class JobProcessor {
       const fileContents = await this.sandboxService.getFileContents(sandbox, filesToModify, Infinity, repoPath);
       const allFiles = await this.sandboxService.getFileTree(sandbox, repoPath);
 
-      // Step 7: Generate code changes using AI
+      // Step 7: Use LangGraph workflow for code generation + validation loop
       await job.updateProgress(70);
-      console.log('Step 7: Generating code changes...');
-      const generation = await this.aiService.generateCodeChanges(
+      console.log('\nStarting LangGraph Code Generation + Validation Workflow');
+
+      const branchName = generateBranchName(task);
+      const graph = createCodeValidationGraph();
+
+      const workflowResult = await graph.invoke({
         repoUrl,
+        repoId,
         task,
-        fileContents,
+        forkUrl: repoUrl,
+        forkOwner: repoId.split('/')[0],
+        branchName,
+        packageManager,
         relevantFiles,
+        filesToModify,
+        fileContents,
         allFiles,
         keywords,
-        packageManager  // ← Pass package manager to AI
-      );
-
-      // Step 8: Execute file operations
-      await job.updateProgress(80);
-      console.log('Step 8: Executing file operations...');
-      await this.sandboxService.executeFileOperations(sandbox, generation.fileOperations, repoPath);
-
-      // Step 9: Run shell commands if needed
-      if (generation.shellCommands && generation.shellCommands.length > 0) {
-        console.log('Step 9: Running shell commands...');
-        await this.sandboxService.runShellCommands(sandbox, generation.shellCommands, repoPath, packageManager);
-      }
-
-      // Step 10: Create branch, commit, and push
-      await job.updateProgress(90);
-      console.log('Step 10: Committing and pushing changes...');
-      const branchName = generateBranchName();
-      await this.gitService.commitAndPush(
+        codeSkeletons: skeletons,
         sandbox,
         repoPath,
-        branchName,
-        `feat: ${task}`,
-        forkUrl,
-        githubToken
-      );
+        projectId,
+        githubToken,
+        currentIteration: 0,
+        maxIterations: 3,
+        validationErrors: [],
+        typeErrors: [],
+        syntaxErrors: [],
+        allValidationsPassed: false,
+        status: "generating" as const,
+        generatedCode: null,
+        prUrl: null,
+        prNumber: null,
+        errorMessage: null
+      });
 
-      // Step 11: Create pull request
-      console.log('Step 11: Creating pull request...');
-      const pr = await githubService.createPullRequest(
-        repoUrl,
-        forkOwner,
-        branchName,
-        task,
-        generation.explanation
-      );
+      console.log('\nLangGraph Workflow Completed');
+      console.log(`Final Status: ${workflowResult.status}`);
+      console.log(`Iterations: ${workflowResult.currentIteration}/${workflowResult.maxIterations}`);
+      console.log(`Validations Passed: ${workflowResult.allValidationsPassed}`);
 
-      // Step 12: Cleanup
+      if (workflowResult.status !== "success" || !workflowResult.prUrl) {
+        const errorMsg = workflowResult.errorMessage || 'Workflow failed to generate valid code';
+        console.error(`\nWorkflow failed: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+
+      console.log(`\nPR Created: ${workflowResult.prUrl}`);
+      console.log(`PR Number: #${workflowResult.prNumber}`);
+
+      // Step 8: Get file diffs for frontend display
+      console.log('\nGenerating file diffs for frontend...');
+      const fileDiffs = await this.getFileDiffs(
+        sandbox,
+        repoPath,
+        workflowResult.generatedCode?.fileOperations || []
+      );
+      console.log(`Generated diffs for ${fileDiffs.length} files`);
+
+      // Step 9: Mark as complete (sandbox will auto-cleanup after 30min timeout)
       await job.updateProgress(100);
-      console.log('Step 12: Cleaning up...');
-      await this.sandboxService.cleanup(projectId);
+      console.log('\nSandbox will remain active for 30 minutes for frontend display');
 
-      console.log(`Job ${job.id} completed. PR: ${pr.url}`);
+      console.log(`\nJob ${job.id} completed successfully!`);
 
       return {
         success: true,
-        prUrl: pr.url,
-        prNumber: pr.number
+        prUrl: workflowResult.prUrl,
+        prNumber: workflowResult.prNumber!,
+        fileDiffs,
+        fileOperations: workflowResult.generatedCode?.fileOperations || [],
+        explanation: workflowResult.generatedCode?.explanation || ''
       };
 
     } catch (error) {
@@ -204,6 +216,59 @@ export class JobProcessor {
       await this.sandboxService.cleanup(projectId);
       throw error;
     }
+  }
+
+  /**
+   * Get file diffs for modified files
+   */
+  private async getFileDiffs(
+    sandbox: any,
+    repoPath: string,
+    fileOperations: any[]
+  ): Promise<Array<{ path: string; oldContent: string; newContent: string }>> {
+    const diffs: Array<{ path: string; oldContent: string; newContent: string }> = [];
+
+    for (const op of fileOperations) {
+      try {
+        const filePath = `${repoPath}/${op.path}`;
+
+        // Get current content (after changes)
+        let newContent = '';
+        try {
+          const readResult = await sandbox.files.read(filePath);
+          newContent = readResult || '';
+        } catch (error) {
+          // File might not exist (deleted or failed to create)
+          newContent = '';
+        }
+
+        // Get old content from git (before changes)
+        let oldContent = '';
+        try {
+          const gitShowResult = await sandbox.commands.run(`cd ${repoPath} && git show HEAD:${op.path}`);
+          oldContent = gitShowResult.stdout || '';
+        } catch (error) {
+          // File didn't exist before (new file)
+          oldContent = '';
+        }
+
+        diffs.push({
+          path: op.path,
+          oldContent,
+          newContent
+        });
+      } catch (error) {
+        console.warn(`Failed to get diff for ${op.path}:`, error);
+        // Add empty diff to maintain file list
+        diffs.push({
+          path: op.path,
+          oldContent: '',
+          newContent: ''
+        });
+      }
+    }
+
+    return diffs;
   }
 
   /**

@@ -21,10 +21,9 @@ export class GitHubService {
    * Ensure fork exists, create if necessary
    * Extracted from worker.ts lines 33-53
    */
-  async ensureFork(repoUrl: string): Promise<{ forkUrl: string; forkOwner: string }> {
+  async ensureFork(repoUrl: string, accountOwner: string): Promise<{ forkUrl: string; forkOwner: string }> {
     const { owner, repo } = this.githubHelper.parseGitHubUrl(repoUrl);
-    const user = await this.githubHelper.getAuthenticatedUser();
-    let forkInfo = await this.githubHelper.getFork(owner, repo);
+    let forkInfo = await this.githubHelper.getFork(owner, repo, accountOwner);
 
     if (!forkInfo.exists) {
       const newFork = await this.githubHelper.forkRepository(owner, repo);

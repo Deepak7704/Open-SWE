@@ -19,7 +19,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "OpenSWE - From GitHub Issues to Pull Requests in Seconds",
+  title: "100xSWE - From GitHub Issues to Pull Requests in Seconds",
   description: "Convert GitHub issues into pull requests using AI analysis",
 };
 

@@ -22,9 +22,10 @@ export interface ValidationResult{
     checks:{
         syntax:ValidationCheck;
         types:ValidationCheck;
-        tests:TestValidationCheck
+        tests:TestValidationCheck;
+        build?:ValidationCheck;
     };
-    executionTime : number; //D
+    executionTime : number;
 }
 //D
 export interface IteraionHistory{

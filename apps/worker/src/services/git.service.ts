@@ -84,8 +84,8 @@ export class GitService {
   }
 
   /**
-   * Configure git, create branch, commit changes, and push to fork
-   * Extracted from worker.ts lines 141-150
+   * Configure git, create branch, commit changes, and push to repository
+   * For GitHub Apps: pushes to same repo (not fork)
    */
   async commitAndPush(
     sandbox: Sandbox,
@@ -96,8 +96,8 @@ export class GitService {
     githubToken: string
   ): Promise<void> {
     // Configure git user
-    await sandbox.commands.run(`cd ${repoPath} && git config user.email "bot@example.com"`);
-    await sandbox.commands.run(`cd ${repoPath} && git config user.name "AI Bot"`);
+    await sandbox.commands.run(`cd ${repoPath} && git config user.email "bot@100xswe.com"`);
+    await sandbox.commands.run(`cd ${repoPath} && git config user.name "100xSWE Bot"`);
 
     // Create and checkout new branch
     await sandbox.commands.run(`cd ${repoPath} && git checkout -b ${branchName}`);
@@ -106,8 +106,8 @@ export class GitService {
     await sandbox.commands.run(`cd ${repoPath} && git add .`);
     await sandbox.commands.run(`cd ${repoPath} && git commit -m "${commitMessage}"`);
 
-    // Push to fork with authentication
-    const authenticatedForkUrl = forkUrl.replace('https://github.com', `https://${githubToken}@github.com`);
-    await sandbox.commands.run(`cd ${repoPath} && git push ${authenticatedForkUrl} ${branchName}`);
+    // Push to repository with authentication (GitHub App installation token)
+    const authenticatedRepoUrl = forkUrl.replace('https://github.com', `https://x-access-token:${githubToken}@github.com`);
+    await sandbox.commands.run(`cd ${repoPath} && git push ${authenticatedRepoUrl} ${branchName}`);
   }
 }

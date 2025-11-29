@@ -124,8 +124,11 @@ export default function Dashboard() {
       setJobStatus(data);
       console.log('Job submitted:', data);
 
-      // Clear the form
       setTask("");
+
+      setTimeout(() => {
+        router.push(`/chat?jobId=${data.jobId}`);
+      }, 1500);
     } catch (error) {
       console.error('Error submitting task:', error);
       alert('Failed to submit task. Please try again.');

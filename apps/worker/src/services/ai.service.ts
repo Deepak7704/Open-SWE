@@ -353,7 +353,8 @@ YOUR OUTPUT (file paths only):`;
     allFiles: string[],
     keywords: string[],
     packageManager: string = 'npm',
-    skeletons?: Map<string, string>  // Optional code skeletons for context
+    skeletons?: Map<string, string>,  // Optional code skeletons for context
+    previousErrors?: string[]  // Optional: errors from previous validation attempt
   ): Promise<GenerateOutput> {
     const prompt = this.buildPrompt(
       repoUrl,
@@ -363,7 +364,8 @@ YOUR OUTPUT (file paths only):`;
       allFiles,
       keywords,
       packageManager,
-      skeletons
+      skeletons,
+      previousErrors
     );
 
     console.log('Calling generateObject with schema...');
@@ -399,7 +401,8 @@ YOUR OUTPUT (file paths only):`;
     allFiles: string[],
     keywords: string[],
     packageManager: string,
-    skeletons?: Map<string, string>
+    skeletons?: Map<string, string>,
+    previousErrors?: string[]
   ): string {
     // Build full content section for files to modify
     let filesToModifySection = '';
@@ -425,8 +428,26 @@ YOUR OUTPUT (file paths only):`;
     const fileTreeSection = allFiles.slice(0, 100).join('\n');
     const packageManagerInstructions = this.getPackageManagerInstructions(packageManager);
 
-    return `You are an expert software developer modifying an existing codebase.
+    let errorSection = '';
+    if (previousErrors && previousErrors.length > 0) {
+      errorSection = `
+CRITICAL: PREVIOUS CODE HAD VALIDATION ERRORS - MUST FIX
 
+The previous code generation had the following validation errors:
+
+${previousErrors.map((error, idx) => `${idx + 1}. ${error}`).join('\n')}
+
+MANDATORY REQUIREMENTS:
+1. You MUST fix ALL these errors in the new code
+2. Pay special attention to type errors and syntax issues
+3. Ensure all imports, types, and function signatures are correct
+4. Test your code mentally for these specific errors before generating
+5. Do NOT introduce new errors while fixing existing ones
+`;
+    }
+
+    return `You are an expert software developer modifying an existing codebase.
+${errorSection}
 REPOSITORY: ${repoUrl}
 USER REQUEST: ${task}
 SEARCH KEYWORDS: ${keywords.join(', ')}

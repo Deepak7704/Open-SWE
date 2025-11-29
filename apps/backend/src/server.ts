@@ -7,6 +7,8 @@ import { createQueue, QUEUE_NAMES, connection } from '@openswe/shared/queues';
 import webhookRoute from '../routes/webhook';
 import installationRoute from '../routes/installation';
 import authRoute from '../routes/auth.routes';
+import { getInstallationForRepo } from '../routes/installation';
+import { getInstallationToken } from '../lib/github_app';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +58,24 @@ app.post('/api/chat', async (req, res) => {
 
     console.log(`Code generation request - Repo: ${repoId}, Task: ${task}`);
 
+    // Get installation token for GitHub App authentication (if available)
+    let installationToken: string | null = null;
+    let installationId: number | null = null;
+
+    try {
+      installationId = await getInstallationForRepo(repoId);
+
+      if (installationId) {
+        installationToken = await getInstallationToken(installationId);
+        console.log(`[Chat API] Using GitHub App token for installation ${installationId}`);
+      } else {
+        console.log(`[Chat API] No GitHub App installation found for ${repoId}, will use GITHUB_ACCESS_TOKEN fallback`);
+      }
+    } catch (error: any) {
+      console.warn(`[Chat API] Failed to get installation token: ${error.message}`);
+      console.log(`[Chat API] Will use GITHUB_ACCESS_TOKEN fallback`);
+    }
+
     // Check if repository is already indexed (check for BM25 index in Redis)
     const bm25Key = `bm25:index:${repoId}`;
     const isIndexed = await connection.exists(bm25Key);
@@ -72,7 +92,9 @@ app.post('/api/chat', async (req, res) => {
           repoUrl,
           repoId,
           branch: 'main',
-          task: 'Auto-index repository'
+          task: 'Auto-index repository',
+          installationToken,
+          installationId
         },
         {
           attempts: 3,
@@ -89,7 +111,8 @@ app.post('/api/chat', async (req, res) => {
           repoUrl,
           task,
           repoId,
-          indexingJobId: indexingJob.id
+          indexingJobId: indexingJob.id,
+          installationToken
         },
         {
           // Wait for indexing to complete first
@@ -115,7 +138,8 @@ app.post('/api/chat', async (req, res) => {
     const job = await chatQueue.add('process', {
       repoUrl,
       task,
-      repoId
+      repoId,
+      installationToken
     });
 
     res.status(202).json({
@@ -143,6 +167,31 @@ app.get('/api/status/:jobId', async (req, res) => {
       state: await job.getState(),
       progress: job.progress,
       result: job.returnvalue,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/job-details/:jobId', async (req, res) => {
+  try {
+    const job = await chatQueue.getJob(req.params.jobId);
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const state = await job.getState();
+    const result = job.returnvalue;
+
+    res.json({
+      jobId: job.id,
+      state,
+      progress: job.progress,
+      result,
+      fileDiffs: result?.fileDiffs || [],
+      fileOperations: result?.fileOperations || [],
+      explanation: result?.explanation || '',
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -217,6 +266,7 @@ app.listen(PORT, () => {
   console.log(`=== API ENDPOINTS ===`);
   console.log(`POST /api/chat - Chat endpoint`);
   console.log(`GET /api/status/:jobId - Chat job status`);
+  console.log(`GET /api/job-details/:jobId - Job details with file diffs`);
   console.log(`GET /installation/list - List all installations`);
   console.log(`GET /auth/me - Get current user`);
   console.log(`GET /auth/repos - Get user repositories`);

@@ -35,26 +35,22 @@ export class GitHubHelper {
     /**
      * Check if user already has a fork of the repository
      */
-    async getFork(owner: string, repo: string): Promise<{ exists: boolean; cloneUrl: string | null; forkOwner: string | null }> {
+    async getFork(owner: string, repo: string, accountOwner: string): Promise<{ exists: boolean; cloneUrl: string | null; forkOwner: string | null }> {
         try {
-            const user = await this.getAuthenticatedUser();
-            
-            // Check if fork exists
             const { data: fork } = await this.octokit.rest.repos.get({
-                owner: user.login,
+                owner: accountOwner,
                 repo: repo
             });
-            
-            // Verify it's actually a fork of the original repo
+
             if (fork.fork && fork.parent?.full_name === `${owner}/${repo}`) {
                 console.log(`Found existing fork: ${fork.html_url}`);
                 return {
                     exists: true,
                     cloneUrl: fork.clone_url,
-                    forkOwner: user.login
+                    forkOwner: accountOwner
                 };
             }
-            
+
             return { exists: false, cloneUrl: null, forkOwner: null };
         } catch (error: any) {
             if (error.status === 404) {
@@ -113,7 +109,7 @@ export class GitHubHelper {
     }
 
     /**
-     * Create a pull request from fork to original repo
+     * Create a pull request from branch in same repo (for GitHub Apps)
      */
     async createPullRequest(
         originalOwner: string,
@@ -125,16 +121,17 @@ export class GitHubHelper {
         baseBranch?: string
     ): Promise<{ number: number; url: string }> {
         console.log('Creating pull request...');
-        
+
         // Get default branch if not specified
         const base = baseBranch || await this.getDefaultBranch(originalOwner, originalRepo);
-        
+
+        // GitHub Apps create PRs within same repo, not from forks
         const { data: pr } = await this.octokit.rest.pulls.create({
             owner: originalOwner,
             repo: originalRepo,
             title: title,
             body: body,
-            head: `${forkOwner}:${branchName}`,
+            head: branchName,
             base: base,
         });
         

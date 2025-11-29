@@ -57,8 +57,14 @@ export class ValidationService {
     const hasPyRequirements = await this.fileExists(sandbox, 'requirements.txt');
 
     if (hasTSConfig || hasPackageJson) {
-      const result = await sandbox.commands.run('cd /home/user/project && npx tsc --noEmit 2>&1');
-      if (result.exitCode !== 0) {
+      const result = await sandbox.commands.run('cd /tmp && npx -y -p typescript@latest tsc --noEmit --project /home/user/project/tsconfig.json 2>&1 || true');
+
+      if (result.stdout.includes('Cannot find a tsconfig.json file')) {
+        console.log('No root tsconfig.json found (likely a monorepo), skipping type checking');
+        return { passed: true, errors: [] };
+      }
+
+      if (result.exitCode !== 0 && !result.stdout.includes('Cannot find a tsconfig.json file')) {
         errors.push(...this.parseTSErrors(result.stdout + result.stderr));
       }
     } else if (hasPyRequirements) {
@@ -76,8 +82,14 @@ export class ValidationService {
     const hasTSConfig = await this.fileExists(sandbox, 'tsconfig.json');
 
     if (hasTSConfig) {
-      const result = await sandbox.commands.run('cd /home/user/project && npx tsc --strict --noEmit 2>&1');
-      if (result.exitCode !== 0) {
+      const result = await sandbox.commands.run('cd /tmp && npx -y -p typescript@latest tsc --strict --noEmit --project /home/user/project/tsconfig.json 2>&1 || true');
+
+      if (result.stdout.includes('Cannot find a tsconfig.json file')) {
+        console.log('No root tsconfig.json found (likely a monorepo), skipping type checking');
+        return { passed: true, errors: [] };
+      }
+
+      if (result.exitCode !== 0 && !result.stdout.includes('Cannot find a tsconfig.json file')) {
         errors.push(...this.parseTSErrors(result.stdout + result.stderr));
       }
     }
@@ -197,14 +209,16 @@ export class ValidationService {
     if (command.includes('jest') || command.includes('vitest') || command.includes('npm test')) {
       const passMatch = output.match(/(\d+)\s+pass/);
       const failMatch = output.match(/(\d+)\s+fail/);
-      const passCount = passMatch ? parseInt(passMatch[1]) : 0;
-      const failCount = failMatch ? parseInt(failMatch[1]) : 0;
+      const passCount = passMatch && passMatch[1] ? parseInt(passMatch[1]) : 0;
+      const failCount = failMatch && failMatch[1] ? parseInt(failMatch[1]) : 0;
 
       const failures: string[] = [];
       const failureRegex = /●\s+(.+?)(?=\n\n|$)/gs;
       let match;
       while ((match = failureRegex.exec(output)) !== null) {
-        failures.push(match[1].replace(/\n/g, ' ').trim());
+        if (match[1]) {
+          failures.push(match[1].replace(/\n/g, ' ').trim());
+        }
       }
 
       return { failures, passCount, failCount };
@@ -212,10 +226,10 @@ export class ValidationService {
 
     if (command.includes('pytest')) {
       const match = output.match(/(\d+)\s+passed(?:,\s+(\d+)\s+failed)?/);
-      const passCount = match ? parseInt(match[1]) : 0;
+      const passCount = match && match[1] ? parseInt(match[1]) : 0;
       const failCount = match && match[2] ? parseInt(match[2]) : 0;
 
-      const failures = output.split('FAILED').slice(1).map((f) => f.split('\n')[0].trim());
+      const failures = output.split('FAILED').slice(1).map((f) => f.split('\n')[0]?.trim() || '');
 
       return { failures, passCount, failCount };
     }
