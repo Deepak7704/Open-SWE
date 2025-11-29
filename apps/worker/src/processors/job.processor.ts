@@ -37,7 +37,14 @@ export class JobProcessor {
    * Process a code change job
    * Main workflow orchestration
    */
-  async process(job: any): Promise<{ success: boolean; prUrl: string; prNumber: number }> {
+  async process(job: any): Promise<{
+    success: boolean;
+    prUrl: string;
+    prNumber: number;
+    fileDiffs: Array<{ path: string; oldContent: string; newContent: string; diffOutput: string }>;
+    fileOperations: any[];
+    explanation: string;
+  }> {
     const { repoUrl, task, repoId, indexingJobId, installationToken } = job.data;
     const projectId = `job-${job.id}`;
 
@@ -225,11 +232,39 @@ export class JobProcessor {
     sandbox: any,
     repoPath: string,
     fileOperations: any[]
-  ): Promise<Array<{ path: string; oldContent: string; newContent: string }>> {
-    const diffs: Array<{ path: string; oldContent: string; newContent: string }> = [];
+  ): Promise<Array<{ path: string; oldContent: string; newContent: string; diffOutput: string }>> {
+    const diffs: Array<{ path: string; oldContent: string; newContent: string; diffOutput: string }> = [];
+
+    // Files to exclude from diff display (lock files and large dependency files)
+    const excludePatterns = [
+      'package-lock.json',
+      'yarn.lock',
+      'pnpm-lock.yaml',
+      'Cargo.lock',
+      'Gemfile.lock',
+      'composer.lock',
+      'poetry.lock',
+      'Pipfile.lock',
+      'go.sum',
+      'mix.lock',
+      'pubspec.lock',
+      '.lock'
+    ];
+
+    const shouldExcludeFile = (filePath: string): boolean => {
+      return excludePatterns.some(pattern =>
+        filePath.endsWith(pattern) || filePath.includes(`/${pattern}`)
+      );
+    };
 
     for (const op of fileOperations) {
       try {
+        // Skip excluded files
+        if (shouldExcludeFile(op.path)) {
+          console.log(`Skipping excluded file: ${op.path}`);
+          continue;
+        }
+
         const filePath = `${repoPath}/${op.path}`;
 
         // Get current content (after changes)
@@ -252,10 +287,63 @@ export class JobProcessor {
           oldContent = '';
         }
 
+        // Generate git diff output - compare against the default branch
+        let diffOutput = '';
+        try {
+          // Detect the default branch name
+          let baseBranch = 'main';
+          try {
+            const branchListResult = await sandbox.commands.run(
+              `cd ${repoPath} && git branch -r`
+            );
+            const remoteBranches = branchListResult.stdout || '';
+            if (remoteBranches.includes('origin/master') && !remoteBranches.includes('origin/main')) {
+              baseBranch = 'master';
+            }
+          } catch (e) {
+            console.warn('Failed to detect default branch, using main');
+          }
+
+          console.log(`Generating diff for ${op.path} against origin/${baseBranch}...`);
+
+          // Generate diff against the base branch
+          const gitDiffResult = await sandbox.commands.run(
+            `cd ${repoPath} && git diff origin/${baseBranch}...HEAD -- ${op.path}`
+          );
+          diffOutput = gitDiffResult.stdout || '';
+
+          // If no diff output (new file or deleted file), generate manual diff
+          if (!diffOutput) {
+            if (!oldContent && newContent) {
+              // New file
+              const lines = newContent.split('\n');
+              diffOutput = `diff --git a/${op.path} b/${op.path}\n`;
+              diffOutput += `new file mode 100644\n`;
+              diffOutput += `--- /dev/null\n`;
+              diffOutput += `+++ b/${op.path}\n`;
+              diffOutput += `@@ -0,0 +1,${lines.length} @@\n`;
+              diffOutput += lines.map(line => `+${line}`).join('\n');
+            } else if (oldContent && !newContent) {
+              // Deleted file
+              const lines = oldContent.split('\n');
+              diffOutput = `diff --git a/${op.path} b/${op.path}\n`;
+              diffOutput += `deleted file mode 100644\n`;
+              diffOutput += `--- a/${op.path}\n`;
+              diffOutput += `+++ /dev/null\n`;
+              diffOutput += `@@ -1,${lines.length} +0,0 @@\n`;
+              diffOutput += lines.map(line => `-${line}`).join('\n');
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to generate git diff for ${op.path}:`, error);
+          diffOutput = '';
+        }
+
         diffs.push({
           path: op.path,
           oldContent,
-          newContent
+          newContent,
+          diffOutput
         });
       } catch (error) {
         console.warn(`Failed to get diff for ${op.path}:`, error);
@@ -263,7 +351,8 @@ export class JobProcessor {
         diffs.push({
           path: op.path,
           oldContent: '',
-          newContent: ''
+          newContent: '',
+          diffOutput: ''
         });
       }
     }

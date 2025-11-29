@@ -3,12 +3,14 @@ import 'dotenv/config';
 
 import express from 'express';
 import cors from 'cors';
+import { randomUUID } from 'crypto';
 import { createQueue, QUEUE_NAMES, connection } from '@openswe/shared/queues';
 import webhookRoute from '../routes/webhook';
 import installationRoute from '../routes/installation';
 import authRoute from '../routes/auth.routes';
 import { getInstallationForRepo } from '../routes/installation';
 import { getInstallationToken } from '../lib/github_app';
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -84,7 +86,8 @@ app.post('/api/chat', async (req, res) => {
       console.log(`Repository ${repoId} not indexed. Triggering automatic indexing...`);
 
       // Trigger indexing job first
-      const projectId = `index-${Date.now()}`;
+      const indexingJobId = randomUUID();
+      const projectId = `index-${indexingJobId}`;
       const indexingJob = await indexingQueue.add(
         'index-repo',
         {
@@ -97,6 +100,7 @@ app.post('/api/chat', async (req, res) => {
           installationId
         },
         {
+          jobId: indexingJobId,
           attempts: 3,
           backoff: { type: 'exponential', delay: 2000 }
         }
@@ -105,6 +109,7 @@ app.post('/api/chat', async (req, res) => {
       console.log(`Indexing job ${indexingJob.id} queued for ${repoId}`);
 
       // Queue code generation job with dependency on indexing
+      const codeGenJobId = randomUUID();
       const codeGenJob = await chatQueue.add(
         'process',
         {
@@ -115,6 +120,7 @@ app.post('/api/chat', async (req, res) => {
           installationToken
         },
         {
+          jobId: codeGenJobId,
           // Wait for indexing to complete first
           delay: 10000 // Start checking after 1 minute
         }
@@ -135,11 +141,14 @@ app.post('/api/chat', async (req, res) => {
     // Repository already indexed, proceed with code generation
     console.log(`Repository ${repoId} already indexed. Proceeding with code generation...`);
 
+    const jobId = randomUUID();
     const job = await chatQueue.add('process', {
       repoUrl,
       task,
       repoId,
       installationToken
+    }, {
+      jobId
     });
 
     res.status(202).json({

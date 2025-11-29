@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { indexingQueue, chatQueue } from '../src/server';
 import { connection } from '@openswe/shared/queues';
 import { getInstallationForRepo } from './installation';
@@ -159,6 +160,7 @@ const router = Router();
 
         // Queue full indexing job
         if (strategy.type === 'full') {
+          const jobId = randomUUID();
           const job = await indexingQueue.add('index-repo', {
             projectId: repoName,
             repoUrl: repoHtmlUrl,
@@ -175,6 +177,7 @@ const router = Router();
             installationToken,
             installationId,
           }, {
+            jobId,
             attempts: 3,
             backoff: { type: 'exponential', delay: 2000 }
           });
@@ -191,6 +194,7 @@ const router = Router();
         }
 
         // Queue incremental indexing job
+        const jobId = randomUUID();
         const job = await indexingQueue.add('incremental-index', {
           projectId: repoName,
           repoUrl: repoHtmlUrl,
@@ -209,6 +213,7 @@ const router = Router();
           installationToken,
           installationId,
         }, {
+          jobId,
           attempts: 3,
           backoff: { type: 'exponential', delay: 2000 }
         });
@@ -239,6 +244,7 @@ const router = Router();
 
         // Only index when PR is opened or updated
         if (action === 'opened' || action === 'synchronize') {
+          const jobId = randomUUID();
           const job = await indexingQueue.add('index-repo', {
             projectId: `${repoName}/pr-${prNumber}`,
             repoUrl: repoHtmlUrl,
@@ -253,6 +259,7 @@ const router = Router();
             installationToken,
             installationId,
           }, {
+            jobId,
             attempts: 3,
             backoff: { type: 'exponential', delay: 2000 }
           });

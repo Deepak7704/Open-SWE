@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import E2BSandbox from "./E2BSandbox";
+import E2BSandbox from "./Sandbox";
 import GitDiff from "./GitDiff";
 import { ExternalLink } from "lucide-react";
 

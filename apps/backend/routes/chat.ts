@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { indexingQueue } from '../src/server';
 const router = Router();
 
@@ -12,12 +13,15 @@ router.post('/index', async (req, res) => {
       });
     }
 
+    const jobId = randomUUID();
     const job = await indexingQueue.add('index-repo', {
       projectId,
       repoUrl,
       repoId: projectId,
       branch,
       timestamp: Date.now(),
+    }, {
+      jobId
     });
 
     console.log(`Job queued: ${job.id}`);
