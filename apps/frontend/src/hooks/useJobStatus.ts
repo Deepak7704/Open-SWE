@@ -11,13 +11,13 @@ interface JobStatus {
   };
 }
 
-export function useJobStatus(jobId: string | null) {
+export function useJobStatus(jobId: string | null, token: string | null) {
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!jobId) {
+    if (!jobId || !token) {
       setIsLoading(false);
       return;
     }
@@ -27,7 +27,11 @@ export function useJobStatus(jobId: string | null) {
 
     const fetchStatus = async () => {
       try {
-        const response = await fetch(`${backendUrl}/api/status/${jobId}`);
+        const response = await fetch(`${backendUrl}/api/status/${jobId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
         if (!response.ok) {
           throw new Error('Failed to fetch job status');
@@ -54,7 +58,7 @@ export function useJobStatus(jobId: string | null) {
         clearInterval(intervalId);
       }
     };
-  }, [jobId]);
+  }, [jobId, token]);
 
   return { status, error, isLoading };
 }

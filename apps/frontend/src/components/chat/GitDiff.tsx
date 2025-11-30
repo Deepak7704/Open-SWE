@@ -21,16 +21,17 @@ interface FileDiff {
 
 interface GitDiffProps {
   jobId: string;
+  token: string | null;
 }
 
-const GitDiff = ({ jobId }: GitDiffProps) => {
+const GitDiff = ({ jobId, token }: GitDiffProps) => {
   const [selectedFile, setSelectedFile] = useState(0);
   const [files, setFiles] = useState<FileDiff[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!jobId) {
+    if (!jobId || !token) {
       setIsLoading(false);
       return;
     }
@@ -40,7 +41,11 @@ const GitDiff = ({ jobId }: GitDiffProps) => {
 
     const fetchFileDiffs = async () => {
       try {
-        const response = await fetch(`${backendUrl}/api/job-details/${jobId}`);
+        const response = await fetch(`${backendUrl}/api/job-details/${jobId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
         if (!response.ok) {
           throw new Error('Failed to fetch file diffs');
@@ -74,7 +79,7 @@ const GitDiff = ({ jobId }: GitDiffProps) => {
         clearInterval(intervalId);
       }
     };
-  }, [jobId]);
+  }, [jobId, token]);
 
   if (isLoading) {
     return (

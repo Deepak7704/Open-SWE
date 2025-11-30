@@ -7,6 +7,7 @@ import { Loader2, Terminal, CheckCircle2, Circle } from "lucide-react";
 
 interface SandboxProps {
   jobId: string;
+  token: string | null;
 }
 
 interface LogEntry {
@@ -29,7 +30,7 @@ const progressSteps = [
   { progress: 100, message: "Pull request created successfully!" },
 ];
 
-const E2BSandbox = ({ jobId }: SandboxProps) => {
+const E2BSandbox = ({ jobId, token }: SandboxProps) => {
   const [logs, setLogs] = useState<LogEntry[]>([
     {
       type: "info",
@@ -54,14 +55,18 @@ const E2BSandbox = ({ jobId }: SandboxProps) => {
   }, [logs]);
 
   useEffect(() => {
-    if (!jobId) return;
+    if (!jobId || !token) return;
 
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
     let intervalId: NodeJS.Timeout;
 
     const fetchJobStatus = async () => {
       try {
-        const response = await fetch(`${backendUrl}/api/status/${jobId}`);
+        const response = await fetch(`${backendUrl}/api/status/${jobId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
         if (!response.ok) return;
 
         const data = await response.json();
@@ -133,7 +138,7 @@ const E2BSandbox = ({ jobId }: SandboxProps) => {
         clearInterval(intervalId);
       }
     };
-  }, [jobId]);
+  }, [jobId, token]);
 
   return (
     <div className="h-full flex flex-col">

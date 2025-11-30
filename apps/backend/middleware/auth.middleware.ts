@@ -10,6 +10,7 @@ export async function authenticateUser(req:Request,res:Response,next:NextFunctio
     try{
         const authHeader = req.headers.authorization;
         if(!authHeader){
+            console.log(`[Auth Middleware] REJECTED ${req.method} ${req.path} - No authorization header`);
             res.status(401).json({
                 error : 'Unauthorized',
                 message:'No authorization header provided',
@@ -18,6 +19,7 @@ export async function authenticateUser(req:Request,res:Response,next:NextFunctio
             return;
         }
         if(!authHeader.startsWith('Bearer ')){
+            console.log(`[Auth Middleware] REJECTED ${req.method} ${req.path} - Invalid header format: ${authHeader.substring(0, 20)}...`);
             res.status(401).json({
                 error:'Unauthorized',
                 message:'Invalid authorization header format',
@@ -27,6 +29,7 @@ export async function authenticateUser(req:Request,res:Response,next:NextFunctio
         }
         const token = authHeader.split(' ')[1];
         if(!token){
+            console.log(`[Auth Middleware] REJECTED ${req.method} ${req.path} - No token in header`);
             res.status(401).json({
                 error:'Unauthorized',
                 message:'No authentication token provided',
@@ -38,9 +41,11 @@ export async function authenticateUser(req:Request,res:Response,next:NextFunctio
         try{
             decoded = verifySessionToken(token);
         }catch(error){
-            console.log(error);
+            console.log(`[Auth Middleware] REJECTED ${req.method} ${req.path} - Invalid/expired token:`, error);
             res.status(401).json({
-                message:"Invalid Token or session expired"
+                error: 'Unauthorized',
+                message:"Invalid token or session expired",
+                code: 'INVALID_TOKEN'
             });
             return;
         }
@@ -48,9 +53,11 @@ export async function authenticateUser(req:Request,res:Response,next:NextFunctio
         try{
             session = await verifySession(decoded.sessionId);
         }catch(error){
-            console.error('Session verification failed');
+            console.error(`[Auth Middleware] REJECTED ${req.method} ${req.path} - Session not found: ${decoded.sessionId}`);
             res.status(401).json({
-                message:"Session not found or expired"
+                error: 'Unauthorized',
+                message:"Session not found or expired",
+                code: 'SESSION_EXPIRED'
             });
             return;
         }
@@ -64,14 +71,15 @@ export async function authenticateUser(req:Request,res:Response,next:NextFunctio
             sessionId : session.sessionId,
             githubAccessToken : session.githubAccessToken,
             createdAt : session.createdAt,
-            expiredAt : 
+            expiredAt :
             session.expiredAt
         };
-        console.log(`[Auth Middleware] User authenticated ${session.username} (${session.userId})`);
+        console.log(`[Auth Middleware] ✓ AUTHENTICATED ${req.method} ${req.path} - User: ${session.username} (${session.userId})`);
         next();
     }catch(error){
-        console.error('Authentication error',error);
+        console.error(`[Auth Middleware] ERROR ${req.method} ${req.path} -`,error);
         res.status(500).json({
+            error: 'Internal Server Error',
             message : "Authentication failed due to internal server error"
         });
     }

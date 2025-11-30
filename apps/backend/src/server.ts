@@ -8,9 +8,10 @@ import { createQueue, QUEUE_NAMES, connection } from '@openswe/shared/queues';
 import webhookRoute from '../routes/webhook';
 import installationRoute from '../routes/installation';
 import authRoute from '../routes/auth.routes';
+import chatRoute from '../routes/chat';
 import { getInstallationForRepo } from '../routes/installation';
 import { getInstallationToken } from '../lib/github_app';
-
+import { authenticateUser } from '../middleware/auth.middleware';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -43,9 +44,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', authenticateUser, async (req, res) => {
   try {
     const { repoUrl, task } = req.body;
+    const userId = req.user!.userId; // User is guaranteed by authenticateUser middleware
+    const username = req.user!.username;
 
     if (!repoUrl || !task) {
       return res.status(400).json({ error: 'Missing repoUrl or task' });
@@ -58,7 +61,7 @@ app.post('/api/chat', async (req, res) => {
       .replace(/\/$/, '')
       .trim();
 
-    console.log(`Code generation request - Repo: ${repoId}, Task: ${task}`);
+    console.log(`[Chat API] Code generation request - User: ${username}, Repo: ${repoId}, Task: ${task}`);
 
     // Get installation token for GitHub App authentication (if available)
     let installationToken: string | null = null;
@@ -97,7 +100,9 @@ app.post('/api/chat', async (req, res) => {
           branch: 'main',
           task: 'Auto-index repository',
           installationToken,
-          installationId
+          installationId,
+          userId,
+          username
         },
         {
           jobId: indexingJobId,
@@ -106,7 +111,7 @@ app.post('/api/chat', async (req, res) => {
         }
       );
 
-      console.log(`Indexing job ${indexingJob.id} queued for ${repoId}`);
+      console.log(`[Chat API] Indexing job ${indexingJob.id} queued for ${repoId} by user ${username}`);
 
       // Queue code generation job with dependency on indexing
       const codeGenJobId = randomUUID();
@@ -117,7 +122,9 @@ app.post('/api/chat', async (req, res) => {
           task,
           repoId,
           indexingJobId: indexingJob.id,
-          installationToken
+          installationToken,
+          userId,
+          username
         },
         {
           jobId: codeGenJobId,
@@ -139,14 +146,16 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Repository already indexed, proceed with code generation
-    console.log(`Repository ${repoId} already indexed. Proceeding with code generation...`);
+    console.log(`[Chat API] Repository ${repoId} already indexed. Proceeding with code generation for user ${username}...`);
 
     const jobId = randomUUID();
     const job = await chatQueue.add('process', {
       repoUrl,
       task,
       repoId,
-      installationToken
+      installationToken,
+      userId,
+      username
     }, {
       jobId
     });
@@ -163,12 +172,26 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-app.get('/api/status/:jobId', async (req, res) => {
+app.get('/api/status/:jobId', authenticateUser, async (req, res) => {
   try {
-    const job = await chatQueue.getJob(req.params.jobId);
+    const userId = req.user!.userId;
+    const { jobId } = req.params;
+
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      console.log(`[Job Status] Invalid jobId received: ${jobId}`);
+      return res.status(400).json({ error: 'Valid Job ID is required' });
+    }
+
+    const job = await chatQueue.getJob(jobId);
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Verify job ownership
+    if (job.data.userId !== userId) {
+      console.log(`[Job Status] User ${userId} attempted to access job ${job.id} owned by ${job.data.userId}`);
+      return res.status(403).json({ error: 'Forbidden: You do not have access to this job' });
     }
 
     res.json({
@@ -182,12 +205,26 @@ app.get('/api/status/:jobId', async (req, res) => {
   }
 });
 
-app.get('/api/job-details/:jobId', async (req, res) => {
+app.get('/api/job-details/:jobId', authenticateUser, async (req, res) => {
   try {
-    const job = await chatQueue.getJob(req.params.jobId);
+    const userId = req.user!.userId;
+    const { jobId } = req.params;
+
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      console.log(`[Job Details] Invalid jobId received: ${jobId}`);
+      return res.status(400).json({ error: 'Valid Job ID is required' });
+    }
+
+    const job = await chatQueue.getJob(jobId);
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Verify job ownership
+    if (job.data.userId !== userId) {
+      console.log(`[Job Details] User ${userId} attempted to access job ${job.id} owned by ${job.data.userId}`);
+      return res.status(403).json({ error: 'Forbidden: You do not have access to this job' });
     }
 
     const state = await job.getState();
@@ -252,6 +289,10 @@ app.use('/github-webhook', (req, res, next) => {
 // Mount auth route
 // This handles OAuth authentication (login, callback, logout)
 app.use('/auth', authRoute);
+
+// Mount chat/indexing routes
+// This handles indexing operations
+app.use('/api', chatRoute);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);

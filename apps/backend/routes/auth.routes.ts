@@ -5,6 +5,7 @@ import axios from 'axios';
 import { Octokit } from '@octokit/rest';
 import { createSession, deleteSession, verifySession } from '../lib/session_manager';
 import { generateSessionToken } from '../lib/jwt_manager';
+import { authenticateUser } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -176,57 +177,36 @@ try {
 });
 
 // ROUTE 3: Get current user info
-router.get('/me', async (req: Request, res: Response) => {
+router.get('/me', authenticateUser, async (req: Request, res: Response) => {
 try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-
-    const { verifySessionToken } = require('../lib/jwt_manager');
-    const decoded = verifySessionToken(token);
-
-    const session = await verifySession(decoded.sessionId);
+    const user = req.user!;
 
     res.json({
-        userId: session.userId,
-        username: session.username,
-        email: session.email,
-        name: session.name,
-        avatar: session.avatar,
-        profileUrl: session.profileUrl,
-        sessionId: session.sessionId,
-        createdAt: session.createdAt,
-        expiresAt: session.expiredAt
+        userId: user.userId,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        avatar: user.avatar,
+        profileUrl: user.profileUrl,
+        sessionId: user.sessionId,
+        createdAt: user.createdAt,
+        expiresAt: user.expiredAt
     });
 
 } catch (error: any) {
     console.error('[Auth] /me error:', error);
-    res.status(401).json({ error: error.message || 'Unauthorized' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
 }
 });
 
 // ROUTE 4: Logout
-router.post('/logout', async (req: Request, res: Response) => {
+router.post('/logout', authenticateUser, async (req: Request, res: Response) => {
 try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-
-    const { verifySessionToken } = require('../lib/jwt_manager');
-    const decoded = verifySessionToken(token);
-
-    const deleted = await deleteSession(decoded.sessionId);
+    const user = req.user!;
+    const deleted = await deleteSession(user.sessionId);
 
     if (deleted) {
-        console.log(`[Auth] User logged out, session ${decoded.sessionId} deleted`);
+        console.log(`[Auth] User logged out: ${user.username}, session ${user.sessionId} deleted`);
         res.json({ message: 'Logged out successfully' });
     } else {
         res.json({ message: 'Session already expired' });
@@ -263,22 +243,11 @@ try {
 
 // ROUTE 6: Get user's GitHub app installations
 // Fetches ONLY installations for the authenticated user
-router.get('/installations', async (req: Request, res: Response) => {
+router.get('/installations', authenticateUser, async (req: Request, res: Response) => {
 try {
-    const authHeader = req.headers.authorization;
+    const user = req.user!;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-
-    const { verifySessionToken } = require('../lib/jwt_manager');
-    const decoded = verifySessionToken(token);
-
-    const session = await verifySession(decoded.sessionId);
-
-    console.log(`[Auth] Fetching installations for user ${session.username}`);
+    console.log(`[Auth] Fetching installations for user ${user.username}`);
 
     // Import Prisma to query installation database
     const { PrismaClient } = require('../generated/prisma/client');
@@ -292,7 +261,7 @@ try {
     // Find all installations for this user (matched by GitHub username)
     const installations = await prisma.installation.findMany({
         where: {
-            accountLogin: session.username,
+            accountLogin: user.username,
             deletedAt: null  // Only active installations
         },
         include: {
@@ -304,11 +273,11 @@ try {
         }
     });
 
-    console.log(`[Auth] Found ${installations.length} installation(s) for user ${session.username}`);
+    console.log(`[Auth] Found ${installations.length} installation(s) for user ${user.username}`);
 
     res.json({
         total: installations.length,
-        installations: installations.map(inst => ({
+        installations: installations.map((inst: any) => ({
             installationId: inst.installationId,
             accountLogin: inst.accountLogin,
             accountType: inst.accountType,
@@ -327,22 +296,11 @@ try {
 // ROUTE 7: Get user's GitHub repositories (from app installations)
 // Fetches ONLY repositories where the GitHub App is installed
 // This way we don't need 'repo' scope in OAuth - clean separation of concerns
-router.get('/repos', async (req: Request, res: Response) => {
+router.get('/repos', authenticateUser, async (req: Request, res: Response) => {
 try {
-    const authHeader = req.headers.authorization;
+    const user = req.user!;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-
-    const { verifySessionToken } = require('../lib/jwt_manager');
-    const decoded = verifySessionToken(token);
-
-    const session = await verifySession(decoded.sessionId);
-
-    console.log(`[Auth] Fetching installed repositories for user ${session.username}`);
+    console.log(`[Auth] Fetching installed repositories for user ${user.username}`);
 
     // Import Prisma to query installation database
     const { PrismaClient } = require('../generated/prisma/client');
@@ -356,7 +314,7 @@ try {
     // Find all installations for this user (matched by GitHub username)
     const installations = await prisma.installation.findMany({
         where: {
-            accountLogin: session.username,
+            accountLogin: user.username,
             deletedAt: null  // Only active installations
         },
         include: {
@@ -369,7 +327,7 @@ try {
     });
 
     // Flatten all repositories from all installations into a single array
-    const allRepos = installations.flatMap(installation =>
+    const allRepos = installations.flatMap((installation: any) =>
         installation.repositories.map((repo: any) => ({
             id: repo.githubId,
             name: repo.name,
@@ -382,12 +340,12 @@ try {
             defaultBranch: 'main', // Default assumption, could be fetched if needed
             owner: {
                 login: repo.fullName.split('/')[0],
-                avatar_url: session.avatar
+                avatar_url: user.avatar
             }
         }))
     );
 
-    console.log(`[Auth] Found ${allRepos.length} installed repositories for user ${session.username} across ${installations.length} installation(s)`);
+    console.log(`[Auth] Found ${allRepos.length} installed repositories for user ${user.username} across ${installations.length} installation(s)`);
 
     res.json({ repos: allRepos });
 

@@ -3,6 +3,7 @@ import { verifyWebhookSignature } from '../lib/github_app';
 import { PrismaClient } from "../generated/prisma/client";
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
+import { authenticateUser } from '../middleware/auth.middleware';
 
 const router = Router();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -201,30 +202,49 @@ export async function getInstallationForRepo(repoFullName: string): Promise<numb
     });
     return repo?.installationId || null;
 }
-// GET /list route - Returns a list of all installations
-router.get('/list', async (req, res) => {
-  // Fetch all installations from database with their repositories
-  const installations = await prisma.installation.findMany({
-    include: {
-      repositories: true  // Include related repos using join
-    }
-  });
+// GET /list route - Returns a list of installations for authenticated user only
+router.get('/list', authenticateUser, async (req, res) => {
+  try {
+    const username = req.user!.username;
 
-  // Transform database records to API response format
-  const installationList = installations.map((install: InstallationRecord) => ({
-    installationId: install.installationId,   // Unique ID of the installation
-    account: install.accountLogin,            // Account login name (e.g., GitHub username)
-    type: install.accountType,                // Account type (e.g., 'User' or 'Organization')
-    repositories: install.repositories.length, // Number of repositories installed
-    repos: install.repositories.map((r: RepositoryRecord) => r.fullName), // List of repository full names
-    installedAt: install.installedAt          // Installation timestamp
-  }));
+    console.log(`[Installation List] Fetching installations for user: ${username}`);
 
-  // Send JSON response containing total and detailed list
-  res.json({
-    total: installationList.length,  // Total number of installations
-    installations: installationList  // Array of installation objects
-  });
+    // Fetch only installations belonging to the authenticated user
+    const installations = await prisma.installation.findMany({
+      where: {
+        accountLogin: username,  // Filter by authenticated user's GitHub username
+        deletedAt: null          // Only active installations
+      },
+      include: {
+        repositories: {
+          where: {
+            removedAt: null      // Only active repos
+          }
+        }
+      }
+    });
+
+    // Transform database records to API response format
+    const installationList = installations.map((install: InstallationRecord) => ({
+      installationId: install.installationId,   // Unique ID of the installation
+      account: install.accountLogin,            // Account login name (e.g., GitHub username)
+      type: install.accountType,                // Account type (e.g., 'User' or 'Organization')
+      repositories: install.repositories.length, // Number of repositories installed
+      repos: install.repositories.map((r: RepositoryRecord) => r.fullName), // List of repository full names
+      installedAt: install.installedAt          // Installation timestamp
+    }));
+
+    console.log(`[Installation List] Found ${installationList.length} installation(s) for user ${username}`);
+
+    // Send JSON response containing total and detailed list
+    res.json({
+      total: installationList.length,  // Total number of installations
+      installations: installationList  // Array of installation objects
+    });
+  } catch (error: any) {
+    console.error('[Installation List] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;

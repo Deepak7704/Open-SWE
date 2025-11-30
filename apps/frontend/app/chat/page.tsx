@@ -6,11 +6,13 @@ import ChatSidebar from "@/components/chat/ChatSidebar";
 import CodeWorkspace from "@/components/chat/CodeWorkspace";
 import { useJobStatus } from "@/hooks/useJobStatus";
 import { getProgressMessages } from "@/lib/progressMessages";
+import { useAuth } from "@/contexts/AuthContext";
 
 function ChatContent() {
   const searchParams = useSearchParams();
   const jobId = searchParams.get('jobId');
-  const { status, error, isLoading } = useJobStatus(jobId);
+  const { token } = useAuth();
+  const { status, error, isLoading } = useJobStatus(jobId, token);
 
   const messages = status
     ? getProgressMessages(status.progress || 0, status.state)
@@ -44,6 +46,7 @@ function ChatContent() {
         status={status}
         isCompleted={status?.state === 'completed'}
         prUrl={status?.result?.prUrl}
+        token={token}
       />
     </div>
   );

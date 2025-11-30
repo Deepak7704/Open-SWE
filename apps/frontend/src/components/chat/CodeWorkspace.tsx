@@ -12,9 +12,10 @@ interface CodeWorkspaceProps {
   status: any;
   isCompleted: boolean;
   prUrl?: string;
+  token: string | null;
 }
 
-const CodeWorkspace = ({ jobId, status, isCompleted, prUrl }: CodeWorkspaceProps) => {
+const CodeWorkspace = ({ jobId, status, isCompleted, prUrl, token }: CodeWorkspaceProps) => {
   const [activeTab, setActiveTab] = useState("sandbox");
 
   return (
@@ -42,11 +43,11 @@ const CodeWorkspace = ({ jobId, status, isCompleted, prUrl }: CodeWorkspaceProps
         </div>
 
         <TabsContent value="sandbox" className="flex-1 mt-0">
-          <E2BSandbox jobId={jobId} />
+          <E2BSandbox jobId={jobId} token={token} />
         </TabsContent>
 
         <TabsContent value="diff" className="flex-1 mt-0">
-          <GitDiff jobId={jobId} />
+          <GitDiff jobId={jobId} token={token} />
         </TabsContent>
       </Tabs>
     </div>
