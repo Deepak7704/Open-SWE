@@ -19,9 +19,9 @@ const CodeWorkspace = ({ jobId, status, isCompleted, prUrl, token }: CodeWorkspa
   const [activeTab, setActiveTab] = useState("sandbox");
 
   return (
-    <div className="flex-1 p-4 md:p-8 bg-background flex flex-col">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-        <div className="flex items-center justify-between mb-4">
+    <div className="flex-1 h-full p-4 md:p-8 bg-background flex flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
           <TabsList>
             <TabsTrigger value="sandbox">Sandbox</TabsTrigger>
             <TabsTrigger value="diff">Git Diff</TabsTrigger>
@@ -42,11 +42,11 @@ const CodeWorkspace = ({ jobId, status, isCompleted, prUrl, token }: CodeWorkspa
           </div>
         </div>
 
-        <TabsContent value="sandbox" className="flex-1 mt-0">
+        <TabsContent value="sandbox" className="flex-1 mt-0 overflow-hidden">
           <E2BSandbox jobId={jobId} token={token} />
         </TabsContent>
 
-        <TabsContent value="diff" className="flex-1 mt-0">
+        <TabsContent value="diff" className="flex-1 mt-0 overflow-hidden">
           <GitDiff jobId={jobId} token={token} />
         </TabsContent>
       </Tabs>

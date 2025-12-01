@@ -239,8 +239,60 @@ const router = Router();
         const action = body.action;
         const prNumber = body.pull_request?.number;
         const prBranch = body.pull_request?.head?.ref;
+        const baseBranch = body.pull_request?.base?.ref; // Target branch (e.g., 'main')
+        const merged = body.pull_request?.merged || false;
+        const mergedAt = body.pull_request?.merged_at;
 
-        console.log(`[PR] #${prNumber} ${action}`);
+        console.log(`[PR] #${prNumber} ${action} ${merged ? '(merged)' : ''}`);
+
+        // Handle PR merge events - re-index base branch with new code
+        if (action === 'closed' && merged) {
+          console.log(`[PR Merged] #${prNumber} merged into ${baseBranch} at ${mergedAt}`);
+
+          // Re-index the base branch (main/master) since new code was merged
+          const jobId = randomUUID();
+          const job = await indexingQueue.add('index-repo', {
+            projectId: repoName,
+            repoUrl: repoHtmlUrl,
+            repoId: repoName,
+            branch: baseBranch,  // Index the target branch, not PR branch
+            timestamp: Date.now(),
+            trigger: 'webhook',
+            event: 'pull_request_merged',
+            prNumber,
+            action: 'merged',
+            indexType: 'full',  // Full re-index after merge
+            installationToken,
+            installationId,
+          }, {
+            jobId,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 }
+          });
+
+          console.log(`[PR Merged] Base branch ${baseBranch} re-index job: ${job.id}`);
+
+          return res.status(200).json({
+            message: 'PR merged - base branch re-indexing queued',
+            action: 'merged',
+            baseBranch,
+            prNumber,
+            jobId: job.id,
+            statusUrl: `/api/index-status/${job.id}`
+          });
+        }
+
+        // Handle PR closed without merge (just closed/rejected)
+        if (action === 'closed' && !merged) {
+          console.log(`[PR Closed] #${prNumber} closed without merging`);
+
+          return res.status(200).json({
+            message: 'PR closed without merge',
+            action: 'closed',
+            prNumber,
+            note: 'No indexing triggered'
+          });
+        }
 
         // Only index when PR is opened or updated
         if (action === 'opened' || action === 'synchronize') {
@@ -276,6 +328,7 @@ const router = Router();
         return res.status(200).json({
           message: 'PR event received',
           action,
+          prNumber,
           note: 'No indexing triggered'
         });
       }

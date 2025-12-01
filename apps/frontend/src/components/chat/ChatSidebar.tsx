@@ -13,8 +13,8 @@ interface ChatSidebarProps {
 
 const ChatSidebar = ({ messages, jobId, isLoading }: ChatSidebarProps) => {
   return (
-    <div className="w-full md:w-[400px] border-r border-border flex flex-col bg-background">
-      <div className="p-4 md:p-6 border-b border-border">
+    <div className="w-full md:w-[400px] h-full border-r border-border flex flex-col bg-background overflow-hidden">
+      <div className="p-4 md:p-6 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Job Progress</h2>
           {isLoading && messages.length === 0 && (

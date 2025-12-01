@@ -4,6 +4,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { createQueue, QUEUE_NAMES, connection } from '@openswe/shared/queues';
 import webhookRoute from '../routes/webhook';
 import installationRoute from '../routes/installation';
@@ -18,6 +19,36 @@ const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
 console.log('Starting Primary Backend');
+
+/**
+ * SECURITY: Sanitize error messages to prevent information disclosure
+ * Prevents exposing internal error details, stack traces, and file paths in production
+ */
+function sanitizeError(error: any): string {
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // In development, show full error messages for debugging
+  if (isDev) {
+    return error.message || 'An error occurred';
+  }
+
+  // Production: Map specific error codes to safe generic messages
+  const safeErrors: Record<string, string> = {
+    'ECONNREFUSED': 'Service temporarily unavailable',
+    'ENOTFOUND': 'Resource not found',
+    'ETIMEDOUT': 'Request timeout',
+    'ECONNRESET': 'Connection was reset',
+    'EPIPE': 'Connection was closed',
+  };
+
+  // Check for known error codes
+  if (error.code && safeErrors[error.code]) {
+    return safeErrors[error.code]!;
+  }
+
+  // For all other errors in production, return a generic message
+  return 'An error occurred while processing your request';
+}
 
 const chatQueue = createQueue(QUEUE_NAMES.WORKER_JOB);
 const indexingQueue = createQueue(QUEUE_NAMES.INDEXING);
@@ -44,7 +75,32 @@ app.use((req, res, next) => {
   next();
 });
 
-app.post('/api/chat', authenticateUser, async (req, res) => {
+// Global rate limiter - prevents general abuse
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minute window
+  message: 'Too many requests from this IP, please try again later',
+  standardHeaders: true, // Return rate limit info in RateLimit-* headers
+  legacyHeaders: false, // Disable X-RateLimit-* headers
+});
+
+// Strict limiter for expensive operations (chat/job creation)
+const strictLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // 20 jobs per hour per user/IP
+  keyGenerator: (req) => {
+    // Rate limit by user ID if authenticated, otherwise by IP
+    return req.user?.userId?.toString() || req.ip || 'unknown';
+  },
+  message: 'Job creation limit exceeded. Please try again later',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply global rate limiter to all routes
+app.use(globalLimiter);
+
+app.post('/api/chat', authenticateUser, strictLimiter, async (req, res) => {
   try {
     const { repoUrl, task } = req.body;
     const userId = req.user!.userId; // User is guaranteed by authenticateUser middleware
@@ -168,7 +224,9 @@ app.post('/api/chat', authenticateUser, async (req, res) => {
       statusUrl: `/api/status/${job.id}`,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    // SECURITY: Log full error internally but return sanitized message to client
+    console.error('[Chat API Error]', error);
+    res.status(500).json({ error: sanitizeError(error) });
   }
 });
 
@@ -201,7 +259,9 @@ app.get('/api/status/:jobId', authenticateUser, async (req, res) => {
       result: job.returnvalue,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    // SECURITY: Log full error internally but return sanitized message to client
+    console.error('[Job Status Error]', error);
+    res.status(500).json({ error: sanitizeError(error) });
   }
 });
 
@@ -240,7 +300,9 @@ app.get('/api/job-details/:jobId', authenticateUser, async (req, res) => {
       explanation: result?.explanation || '',
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    // SECURITY: Log full error internally but return sanitized message to client
+    console.error('[Job Details Error]', error);
+    res.status(500).json({ error: sanitizeError(error) });
   }
 });
 
@@ -261,6 +323,7 @@ app.use('/installation', installationRoute);
 
 // Unified webhook endpoint - handles ALL GitHub events
 // This endpoint receives ALL webhook events from GitHub and routes them appropriately
+// Supported events: installation, push, pull_request (including merges)
 app.use('/github-webhook', (req, res, next) => {
   const event = req.header('X-GitHub-Event') || '';
   console.log(`[Unified Webhook] Received ${event} event`);
@@ -272,6 +335,7 @@ app.use('/github-webhook', (req, res, next) => {
   }
 
   // Route push/PR events to /webhook/github handler
+  // PR events include: opened, synchronize, closed (with merge detection)
   if (event === 'push' || event === 'pull_request') {
     console.log(`[Unified Webhook] Forwarding to /webhook handler`);
     return webhookRoute(req, res, next);
@@ -282,7 +346,7 @@ app.use('/github-webhook', (req, res, next) => {
   return res.status(200).json({
     message: 'Event received but not handled',
     event,
-    note: 'Only installation, push, and pull_request events are processed'
+    note: 'Only installation, push, and pull_request (including merges) events are processed'
   });
 });
 
@@ -294,10 +358,12 @@ app.use('/auth', authRoute);
 // This handles indexing operations
 app.use('/api', chatRoute);
 
+// Global error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(500).json({
-    error: err.message || 'Internal server error',
+  // SECURITY: Log full error internally but return sanitized message to client
+  console.error('[Global Error Handler]', err);
+  res.status(err.status || 500).json({
+    error: sanitizeError(err),
   });
 });
 

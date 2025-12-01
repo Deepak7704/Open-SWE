@@ -6,6 +6,8 @@ import { Octokit } from '@octokit/rest';
 import { createSession, deleteSession, verifySession } from '../lib/session_manager';
 import { generateSessionToken } from '../lib/jwt_manager';
 import { authenticateUser } from '../middleware/auth.middleware';
+import { prisma } from '../lib/prisma';
+import { connection as redis } from '@openswe/shared/queues';
 
 const router = Router();
 
@@ -19,35 +21,75 @@ if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
     throw new Error('GitHub OAuth credentials (GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET) must be set!');
 }
 
-// CSRF protection: Store temporary OAuth states
-const oauthStates = new Map<string, {
-    timestamp: number;
-    userId?: string;
-}>();
+/**
+ * CSRF Protection: OAuth State Management with Redis + TTL
+ *
+ * WHY REDIS + TTL (not in-memory Map):
+ * 1. PERSISTENCE: Survives server restarts → OAuth flows don't fail mid-process
+ * 2. SCALABILITY: Works with load balancers → user can hit different servers
+ * 3. SECURITY: Automatic expiration via TTL → no manual cleanup needed
+ * 4. RELIABILITY: No memory leaks from failed cleanup intervals
+ *
+ * TTL = 15 minutes (OAuth spec recommendation)
+ * After 15 min: Redis automatically deletes expired states
+ */
+const OAUTH_STATE_TTL = 15 * 60; // 15 minutes in seconds
 
-// Cleanup expired states every 10 minutes
-setInterval(() => {
-const now = Date.now();
-const FIFTEEN_MINUTES = 15 * 60 * 1000;
+/**
+ * Generate cryptographically secure OAuth state and store in Redis
+ * State is automatically deleted after 15 minutes via TTL
+ */
+async function generateOAuthState(): Promise<string> {
+    const state = crypto.randomBytes(32).toString('base64url');
+    const stateData = JSON.stringify({
+        timestamp: Date.now(),
+        createdAt: new Date().toISOString(),
+    });
 
-for (const [state, data] of oauthStates.entries()) {
-    if (now - data.timestamp > FIFTEEN_MINUTES) {
-        oauthStates.delete(state);
-    }
+    // Store in Redis with 15-minute TTL
+    // SETEX is atomic → no race conditions
+    await redis.setex(`oauth:state:${state}`, OAUTH_STATE_TTL, stateData);
+
+    console.log(`[OAuth] State created: ${state.substring(0, 8)}... (expires in ${OAUTH_STATE_TTL}s)`);
+
+    return state;
 }
-}, 10 * 60 * 1000);
 
-function generateOAuthState(): string {
-    return crypto.randomBytes(32).toString('base64url');
+/**
+ * Verify OAuth state from Redis and delete to prevent replay attacks
+ * Returns true if state is valid, false if expired/invalid
+ */
+async function verifyOAuthState(state: string): Promise<boolean> {
+    const stateKey = `oauth:state:${state}`;
+
+    try {
+        const storedData = await redis.get(stateKey);
+
+        if (!storedData) {
+            console.log(`[OAuth] State verification FAILED: ${state.substring(0, 8)}... (expired or invalid)`);
+            return false;
+        }
+
+        // Delete immediately to prevent replay attacks (one-time use)
+        await redis.del(stateKey);
+
+        const parsed = JSON.parse(storedData);
+        console.log(`[OAuth] State verified: ${state.substring(0, 8)}... (created: ${parsed.createdAt})`);
+
+        return true;
+    } catch (error) {
+        console.error('[OAuth] State verification error:', error);
+        return false;
+    }
 }
 
 // ROUTE 1: Initiate OAuth flow
-router.get('/github/login', (req: Request, res: Response) => {
+router.get('/github/login', async (req: Request, res: Response) => {
 try {
     console.log('[OAuth] Initiating GitHub OAuth flow');
 
-    const state = generateOAuthState();
-    oauthStates.set(state, { timestamp: Date.now() });
+    // Generate and store state in Redis with TTL
+    const state = await generateOAuthState();
 
     const params = new URLSearchParams({
         client_id: GITHUB_CLIENT_ID!,
@@ -58,7 +100,7 @@ try {
     });
 
     const githubAuthUrl = `https://github.com/login/oauth/authorize?${params.toString()}`;
-    console.log(`[OAuth] Redirecting to GitHub with state: ${state}`);
+    console.log(`[OAuth] Redirecting to GitHub with state: ${state.substring(0, 8)}...`);
 
     res.redirect(githubAuthUrl);
 
@@ -86,13 +128,11 @@ try {
 
     console.log('[OAuth] Received callback from GitHub');
 
-    // Verify CSRF state
-    const storedState = oauthStates.get(state as string);
-    if (!storedState) {
-        throw new Error('Invalid or expired state parameter');
+    // Verify CSRF state from Redis (also deletes to prevent replay)
+    const isValidState = await verifyOAuthState(state as string);
+    if (!isValidState) {
+        throw new Error('Invalid or expired OAuth state parameter. Please try logging in again.');
     }
-    oauthStates.delete(state as string);
-    console.log('[OAuth] State verified successfully');
 
     // Exchange code for access token
     console.log('[OAuth] Exchanging code for access token');
@@ -133,31 +173,60 @@ try {
         email = primaryEmail?.email || emails[0]?.email || 'noemail@github.com';
     }
 
-    // Create session in Redis
+    // ✅ CRITICAL: Save user to PostgreSQL (permanent storage)
+    // This ensures user data survives Redis crashes
+    console.log('[OAuth] Saving user to PostgreSQL database');
+    const user = await prisma.user.upsert({
+        where: {
+            githubId: githubUser.id  // Find user by GitHub ID
+        },
+        update: {
+            // Update if user exists (in case GitHub profile changed)
+            username: githubUser.login,
+            email: email!,
+            name: githubUser.name,
+            avatar: githubUser.avatar_url,
+            profileUrl: githubUser.html_url,
+            lastLoginAt: new Date()
+        },
+        create: {
+            // Create new user if first login
+            githubId: githubUser.id,
+            username: githubUser.login,
+            email: email!,
+            name: githubUser.name,
+            avatar: githubUser.avatar_url,
+            profileUrl: githubUser.html_url,
+            lastLoginAt: new Date()
+        }
+    });
+    console.log(`[OAuth] User saved to database: ${user.username} (DB ID: ${user.id}, GitHub ID: ${user.githubId})`);
+
+    // Create session in Redis (links to PostgreSQL user)
     console.log('[OAuth] Creating session in Redis');
     const sessionId = await createSession({
-        userId: githubUser.id,
-        username: githubUser.login,
-        email: email!,
+        userId: user.id,              // ✅ Use PostgreSQL user.id (not GitHub ID)
+        username: user.username,
+        email: user.email,
         githubAccessToken: access_token,
-        name: githubUser.name,
-        avatar: githubUser.avatar_url,
-        profileUrl: githubUser.html_url
+        name: user.name,
+        avatar: user.avatar,
+        profileUrl: user.profileUrl
     });
     console.log(`[OAuth] Session created: ${sessionId}`);
 
     // Generate JWT token
-    const jwtToken = generateSessionToken(sessionId, githubUser.id);
+    const jwtToken = generateSessionToken(sessionId, user.id);  // ✅ Use PostgreSQL user.id
     console.log('[OAuth] JWT token generated');
 
-    // Prepare user data for frontend
+    // Prepare user data for frontend (use database user, not GitHub user)
     const userData = {
-        id: githubUser.id,
-        username: githubUser.login,
-        email: email,
-        name: githubUser.name,
-        avatar: githubUser.avatar_url,
-        profileUrl: githubUser.html_url
+        id: user.id,              // ✅ PostgreSQL user ID (not GitHub ID)
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        avatar: user.avatar,
+        profileUrl: user.profileUrl
     };
 
     // Redirect to frontend with token and user data
@@ -249,16 +318,7 @@ try {
 
     console.log(`[Auth] Fetching installations for user ${user.username}`);
 
-    // Import Prisma to query installation database
-    const { PrismaClient } = require('../generated/prisma/client');
-    const { PrismaPg } = require('@prisma/adapter-pg');
-    const { Pool } = require('pg');
-
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const adapter = new PrismaPg(pool);
-    const prisma = new PrismaClient({ adapter });
-
-    // Find all installations for this user (matched by GitHub username)
+    // Use singleton Prisma client (no connection pool per request!)
     const installations = await prisma.installation.findMany({
         where: {
             accountLogin: user.username,
@@ -302,16 +362,7 @@ try {
 
     console.log(`[Auth] Fetching installed repositories for user ${user.username}`);
 
-    // Import Prisma to query installation database
-    const { PrismaClient } = require('../generated/prisma/client');
-    const { PrismaPg } = require('@prisma/adapter-pg');
-    const { Pool } = require('pg');
-
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    const adapter = new PrismaPg(pool);
-    const prisma = new PrismaClient({ adapter });
-
-    // Find all installations for this user (matched by GitHub username)
+    // Use singleton Prisma client
     const installations = await prisma.installation.findMany({
         where: {
             accountLogin: user.username,

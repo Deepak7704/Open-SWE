@@ -42,16 +42,29 @@ export class SandboxManager {
 
   /**
    * Clean up and kill a sandbox
+   *
+   * IMPORTANT: Removes sandbox from map FIRST to prevent memory leaks.
+   * If sandbox.kill() fails, the reference is still removed to avoid:
+   * 1. Memory leaks from failed cleanup attempts
+   * 2. Repeated cleanup attempts on dead sandboxes
+   * 3. Map growing indefinitely with stale references
+   *
+   * E2B will eventually timeout and clean up abandoned sandboxes automatically.
    */
   async cleanup(projectId: string): Promise<void> {
     const sandbox = this.sandboxes.get(projectId);
     if (sandbox) {
+      // CRITICAL: Remove from map FIRST (idempotent cleanup)
+      // This prevents memory leaks even if sandbox.kill() fails
+      this.sandboxes.delete(projectId);
+
       try {
         await sandbox.kill();
-        this.sandboxes.delete(projectId);
-        console.log(`Sandbox cleaned up: ${projectId}`);
+        console.log(`[Sandbox] Cleaned up successfully: ${projectId}`);
       } catch (error) {
-        console.error(`Cleanup error for ${projectId}:`, error);
+        console.error(`[Sandbox] Failed to kill sandbox ${projectId}:`, error);
+        // Sandbox reference already removed → prevents memory leak
+        // E2B will eventually timeout and clean up the sandbox server-side
       }
     }
   }

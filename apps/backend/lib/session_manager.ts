@@ -113,22 +113,45 @@ export async function verifySession(sessionId:string):Promise<Session>{
     }
     return session;
 }
+/**
+ * SECURITY: Cleanup expired sessions using SCAN instead of KEYS
+ * KEYS command blocks Redis and causes performance issues in production
+ * SCAN is non-blocking and iterates through keys without freezing Redis
+ */
 export async function cleanupExpiredSessions():Promise<number>{
     let cleanedCount = 0;
     try{
         const pattern = `${SESSION_PREFIX}*`;
-        const keys = await connection.keys(pattern);
+        let cursor = '0';
         const now = Date.now();
-        for(const key of keys){
-            const sessionJson = await connection.get(key);
-            if(sessionJson){
-                const session = JSON.parse(sessionJson) as Session;
-                if(now > session.expiredAt){
-                    await connection.del(key);
-                    cleanedCount++;
+
+        // Use SCAN instead of KEYS to avoid blocking Redis
+        // SCAN iterates through keys without blocking other operations
+        do {
+            // SCAN returns [cursor, keys] tuple
+            // cursor '0' means iteration is complete
+            const result = await connection.scan(
+                cursor,
+                'MATCH', pattern,
+                'COUNT', 100  // Process 100 keys at a time
+            );
+
+            cursor = result[0];
+            const keys = result[1];
+
+            // Process each batch of keys
+            for(const key of keys){
+                const sessionJson = await connection.get(key);
+                if(sessionJson){
+                    const session = JSON.parse(sessionJson) as Session;
+                    if(now > session.expiredAt){
+                        await connection.del(key);
+                        cleanedCount++;
+                    }
                 }
             }
-        }
+        } while (cursor !== '0');
+
         if(cleanedCount > 0){
             console.log(`[Session] cleaned up ${cleanedCount} expired sessions`);
         }

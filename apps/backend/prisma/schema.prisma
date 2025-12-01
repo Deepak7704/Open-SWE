@@ -33,11 +33,31 @@ model Repository {
   fullName       String    @unique //username and reponame that act as key
   private        Boolean   @default(false)
   addedAt        DateTime  @default(now())
-  removedAt      DateTime? 
-  
+  removedAt      DateTime?
+
   installationId Int
   installation   Installation @relation(fields: [installationId], references: [installationId], onDelete: Cascade)
-  
+
   @@index([fullName])
   @@index([installationId])
+}
+
+// User model - stores permanent user identity (survives Redis crashes)
+model User {
+  id              Int       @id @default(autoincrement())
+  githubId        Int       @unique  // GitHub's user ID (used to find user on login)
+  username        String    @unique  // GitHub username
+  email           String               // User's email address
+  name            String?              // Display name (can be null)
+  avatar          String               // Profile picture URL
+  profileUrl      String               // GitHub profile URL
+
+  // Timestamps
+  createdAt       DateTime  @default(now())  // When user first signed up
+  updatedAt       DateTime  @updatedAt       // Last profile update
+  lastLoginAt     DateTime?                  // Last login time (for analytics)
+
+  // Indexes for fast lookups
+  @@index([githubId])   // Fast lookup by GitHub ID during OAuth
+  @@index([username])   // Fast lookup by username
 }

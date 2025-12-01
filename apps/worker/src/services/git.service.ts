@@ -59,17 +59,32 @@ export class GitService {
   /**
    * Clone repository into the sandbox
    * Extracted from sandbox_executor.ts lines 66-87
+   *
+   * SECURITY: Validates repository URL to prevent command injection
    */
   async cloneRepository(sandbox: Sandbox, repoUrl: string): Promise<string> {
     await this.ensureGitInstalled(sandbox);
+
+    // SECURITY: Validate URL format to prevent command injection
+    // Only allow GitHub URLs with valid characters
+    const urlPattern = /^https:\/\/github\.com\/[\w\-]+\/[\w\-\.]+(?:\.git)?$/;
+    if (!urlPattern.test(repoUrl)) {
+      throw new Error('Invalid repository URL format. Only GitHub URLs are allowed.');
+    }
+
     console.log(`Cloning: ${repoUrl}`);
 
     const targetDir = '/home/user/project';
     await sandbox.commands.run(`rm -rf ${targetDir}`);
 
+    // SECURITY: Use shell escaping to prevent command injection
+    // Even though we validate the URL, we escape it as defense in depth
+    const escapedRepoUrl = repoUrl.replace(/'/g, "'\\''");
+    const escapedTargetDir = targetDir.replace(/'/g, "'\\''");
+
     const cloneCmd = `
             export PATH=/home/user/local/bin:$PATH && \
-            git clone ${repoUrl} ${targetDir}
+            git clone '${escapedRepoUrl}' '${escapedTargetDir}'
         `;
 
     const result = await sandbox.commands.run(cloneCmd, { timeoutMs: 300000 });
@@ -86,6 +101,8 @@ export class GitService {
   /**
    * Configure git, create branch, commit changes, and push to repository
    * For GitHub Apps: pushes to same repo (not fork)
+   *
+   * SECURITY: Sanitizes all inputs to prevent command injection
    */
   async commitAndPush(
     sandbox: Sandbox,
@@ -95,19 +112,25 @@ export class GitService {
     forkUrl: string,
     githubToken: string
   ): Promise<void> {
+    // SECURITY: Validate and escape all inputs
+    const escapedRepoPath = repoPath.replace(/'/g, "'\\''");
+    const escapedBranchName = branchName.replace(/'/g, "'\\''");
+    const escapedCommitMessage = commitMessage.replace(/'/g, "'\\''");
+
     // Configure git user
-    await sandbox.commands.run(`cd ${repoPath} && git config user.email "bot@100xswe.com"`);
-    await sandbox.commands.run(`cd ${repoPath} && git config user.name "100xSWE Bot"`);
+    await sandbox.commands.run(`cd '${escapedRepoPath}' && git config user.email "bot@100xswe.com"`);
+    await sandbox.commands.run(`cd '${escapedRepoPath}' && git config user.name "100xSWE Bot"`);
 
     // Create and checkout new branch
-    await sandbox.commands.run(`cd ${repoPath} && git checkout -b ${branchName}`);
+    await sandbox.commands.run(`cd '${escapedRepoPath}' && git checkout -b '${escapedBranchName}'`);
 
     // Stage and commit changes
-    await sandbox.commands.run(`cd ${repoPath} && git add .`);
-    await sandbox.commands.run(`cd ${repoPath} && git commit -m "${commitMessage}"`);
+    await sandbox.commands.run(`cd '${escapedRepoPath}' && git add .`);
+    await sandbox.commands.run(`cd '${escapedRepoPath}' && git commit -m '${escapedCommitMessage}'`);
 
     // Push to repository with authentication (GitHub App installation token)
     const authenticatedRepoUrl = forkUrl.replace('https://github.com', `https://x-access-token:${githubToken}@github.com`);
-    await sandbox.commands.run(`cd ${repoPath} && git push ${authenticatedRepoUrl} ${branchName}`);
+    const escapedRepoUrl = authenticatedRepoUrl.replace(/'/g, "'\\''");
+    await sandbox.commands.run(`cd '${escapedRepoPath}' && git push '${escapedRepoUrl}' '${escapedBranchName}'`);
   }
 }

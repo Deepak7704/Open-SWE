@@ -20,7 +20,7 @@ function ChatContent() {
 
   if (!jobId) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="h-screen bg-background flex items-center justify-center">
         <p className="text-muted-foreground">No job ID provided. Please submit a task from the dashboard.</p>
       </div>
     );
@@ -28,14 +28,14 @@ function ChatContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="h-screen bg-background flex items-center justify-center">
         <p className="text-red-600">Error: {error}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col md:flex-row pt-20 md:pt-0">
+    <div className="h-screen bg-background flex flex-col md:flex-row overflow-hidden">
       <ChatSidebar
         messages={messages}
         jobId={jobId}
@@ -55,7 +55,7 @@ function ChatContent() {
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="h-screen bg-background flex items-center justify-center">
         <p className="text-muted-foreground">Loading...</p>
       </div>
     }>
