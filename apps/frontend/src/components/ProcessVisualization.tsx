@@ -107,15 +107,18 @@ const ProcessVisualization = () => {
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ zIndex: 20 }}>
                     <div className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 lg:w-36 lg:h-36">
                         <div className="absolute inset-0 bg-gradient-to-br from-gray-600/40 via-gray-700/50 to-gray-800/40 rounded-2xl md:rounded-3xl blur-xl md:blur-2xl animate-pulse" />
-                        <div className="relative w-full h-full bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl md:rounded-3xl border-2 border-gray-700 shadow-2xl flex items-center justify-center overflow-hidden">
+                        <div className="relative w-full h-full bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl md:rounded-3xl border-2 border-gray-700 shadow-2xl flex flex-col items-center justify-center overflow-hidden p-2 sm:p-3">
                             <Image
                                 src={logoImage}
                                 alt="Octopus Logo"
                                 width={160}
                                 height={160}
-                                className="w-full h-full object-cover"
+                                className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 object-contain"
                                 priority
                             />
+                            <h2 className="text-xs sm:text-sm md:text-base lg:text-lg font-bold text-white mt-1 sm:mt-2">
+                                100xSWE
+                            </h2>
                         </div>
                     </div>
                 </div>

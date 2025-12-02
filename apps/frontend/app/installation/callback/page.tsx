@@ -55,7 +55,7 @@ export default function InstallationCallback() {
           console.log('[Installation Callback] Installation not found yet, retrying...');
           setMessage('Finalizing setup...');
 
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          await new Promise(resolve => setTimeout(resolve, 5000));
 
           // Retry check
           const retryResponse = await fetch(`${backendUrl}/installation/list`);
@@ -81,7 +81,7 @@ export default function InstallationCallback() {
         // Redirect to dashboard anyway after 3 seconds
         setTimeout(() => {
           router.push('/dashboard');
-        }, 3000);
+        }, 5000);
       }
     };
 
