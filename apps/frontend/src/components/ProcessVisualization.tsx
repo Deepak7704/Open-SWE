@@ -116,9 +116,6 @@ const ProcessVisualization = () => {
                                 className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 object-contain"
                                 priority
                             />
-                            <h2 className="text-xs sm:text-sm md:text-base lg:text-lg font-bold text-white mt-1 sm:mt-2">
-                                100xSWE
-                            </h2>
                         </div>
                     </div>
                 </div>
